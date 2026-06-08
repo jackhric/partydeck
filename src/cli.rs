@@ -1,25 +1,11 @@
-//! Headless command-line interface for PartyDeck.
-//!
-//! These subcommands let the PartyDeck binary be driven without its egui GUI —
-//! primarily so the partydeck-decky-loader plugin can query state (profiles,
-//! handlers, controllers) and, later, launch sessions, from its own Decky UI.
-//!
-//! Design notes:
-//!   - The Rust binary stays the single source of truth for PartyDeck's on-disk
-//!     formats (profiles, handler.json). Callers (the Python backend) shell out
-//!     and parse the `--json` output rather than reimplementing those formats.
-//!   - `--json` outputs are deliberately lightweight DTOs, NOT the internal
-//!     structs, so the wire contract with the plugin stays stable even if
-//!     PartyDeck's internal `Handler`/`Instance` fields change.
-//!   - Subcommands are OPTIONAL. When none is given, main.rs falls through to
-//!     the existing GUI / `--exec` / `--kwin` behavior, so nothing that already
-//!     calls the binary (GamingModeLauncher.sh, the plugin's GUI launch) breaks.
+//! Headless subcommands so the decky plugin can drive the binary without the
+//! egui GUI. With no subcommand, main.rs falls through to the GUI/--kwin path.
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 
 use crate::handler::scan_handlers;
-use crate::input::{DeviceType, scan_input_devices};
+use crate::input::{DeviceType, PadButton, scan_input_devices};
 use crate::profiles::{create_profile, scan_profiles};
 use crate::app::PadFilterType;
 
@@ -32,35 +18,54 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Profile (account) operations.
     Profile {
         #[command(subcommand)]
         action: ProfileAction,
     },
-    /// Handler (game config) operations.
     Handler {
         #[command(subcommand)]
         action: HandlerAction,
     },
     /// List connected input devices as JSON.
-    Devices,
+    Devices {
+        #[arg(long, value_enum, default_value_t = DeviceFilter::All)]
+        filter: DeviceFilter,
+    },
+    /// Stream input events as JSON lines (one per button press) until killed.
+    MonitorInput {
+        #[arg(long, value_enum, default_value_t = DeviceFilter::All)]
+        filter: DeviceFilter,
+    },
+}
+
+
+#[derive(Copy, Clone, ValueEnum)]
+pub enum DeviceFilter {
+    All,
+    NoSteamInput,
+    OnlySteamInput,
+}
+
+impl From<DeviceFilter> for PadFilterType {
+    fn from(f: DeviceFilter) -> Self {
+        match f {
+            DeviceFilter::All => PadFilterType::All,
+            DeviceFilter::NoSteamInput => PadFilterType::NoSteamInput,
+            DeviceFilter::OnlySteamInput => PadFilterType::OnlySteamInput,
+        }
+    }
 }
 
 #[derive(Subcommand)]
 pub enum ProfileAction {
-    /// List profiles as JSON.
     List,
-    /// Create a profile with the given name.
     Create { name: String },
 }
 
 #[derive(Subcommand)]
 pub enum HandlerAction {
-    /// List installed handlers as JSON.
     List,
 }
-
-// ── Wire DTOs (stable contract with the plugin) ──────────────────────
 
 #[derive(Serialize)]
 struct ProfileDto {
@@ -72,16 +77,13 @@ struct HandlerDto {
     name: String,
     author: String,
     version: String,
-    /// True if this handler runs a Windows executable (via Proton/umu).
     win: bool,
     steam_appid: Option<u32>,
 }
 
 #[derive(Serialize)]
 struct DeviceDto {
-    /// Stable identity: the evdev node path. The plugin should reference
-    /// devices by this, NOT by list position — scan order is not stable across
-    /// hotplugs, so a launch resolves path -> index in a single fresh scan.
+    // Path, not list index: scan order isn't stable across hotplugs.
     path: String,
     name: String,
     #[serde(rename = "type")]
@@ -97,10 +99,6 @@ fn device_type_str(t: DeviceType) -> &'static str {
     }
 }
 
-/// Dispatch a headless subcommand. Returns a process exit code.
-///
-/// All output goes to stdout as JSON (for `list`/`devices`) so callers can
-/// parse it directly; human/status messages go to stderr.
 pub fn run(command: Command) -> i32 {
     match command {
         Command::Profile { action } => match action {
@@ -134,9 +132,11 @@ pub fn run(command: Command) -> i32 {
                 print_json(&handlers)
             }
         },
-        Command::Devices => {
-            let devices: Vec<DeviceDto> = scan_input_devices(&PadFilterType::All)
+        Command::Devices { filter } => {
+            // scan_input_devices only sets `enabled` per filter; exclude here.
+            let devices: Vec<DeviceDto> = scan_input_devices(&filter.into())
                 .into_iter()
+                .filter(|d| d.enabled())
                 .map(|d| DeviceDto {
                     path: d.path().to_string(),
                     name: d.fancyname().to_string(),
@@ -145,6 +145,82 @@ pub fn run(command: Command) -> i32 {
                 .collect();
             print_json(&devices)
         }
+        Command::MonitorInput { filter } => monitor_input(filter.into()),
+    }
+}
+
+#[derive(Serialize)]
+struct InputEventDto<'a> {
+    path: &'a str,
+    button: &'static str,
+}
+
+// Digital buttons only; dpad/stick arrive as axes and spam on analog drift.
+fn is_digital_button(b: &PadButton) -> bool {
+    matches!(
+        b,
+        PadButton::ABtn
+            | PadButton::BBtn
+            | PadButton::XBtn
+            | PadButton::YBtn
+            | PadButton::StartBtn
+            | PadButton::SelectBtn
+    )
+}
+
+fn pad_button_str(b: PadButton) -> &'static str {
+    match b {
+        PadButton::Left => "Left",
+        PadButton::Right => "Right",
+        PadButton::Up => "Up",
+        PadButton::Down => "Down",
+        PadButton::ABtn => "A",
+        PadButton::BBtn => "B",
+        PadButton::XBtn => "X",
+        PadButton::YBtn => "Y",
+        PadButton::StartBtn => "Start",
+        PadButton::SelectBtn => "Select",
+        PadButton::AKey => "KeyA",
+        PadButton::RKey => "KeyR",
+        PadButton::XKey => "KeyX",
+        PadButton::ZKey => "KeyZ",
+        PadButton::RightClick => "RightClick",
+    }
+}
+
+// Streams JSON button-press lines until the reader closes the pipe. Devices are
+// scanned once, so hotplugged controllers need a monitor restart.
+fn monitor_input(filter: PadFilterType) -> i32 {
+    use std::io::Write;
+    use std::time::Duration;
+
+    let mut devices: Vec<_> = scan_input_devices(&filter)
+        .into_iter()
+        .filter(|d| d.enabled())
+        .collect();
+    if devices.is_empty() {
+        eprintln!("[partydeck] monitor-input: no devices to watch");
+    }
+
+    let stdout = std::io::stdout();
+    loop {
+        for dev in devices.iter_mut() {
+            let path = dev.path().to_string();
+            let Some(button) = dev.poll().filter(is_digital_button) else {
+                continue;
+            };
+            let evt = InputEventDto {
+                path: &path,
+                button: pad_button_str(button),
+            };
+            if let Ok(line) = serde_json::to_string(&evt) {
+                let mut lock = stdout.lock();
+                if writeln!(lock, "{line}").is_err() || lock.flush().is_err() {
+                    return 0;
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(8));
     }
 }
 

@@ -17,21 +17,14 @@ use crate::profiles::remove_guest_profiles;
 use crate::util::*;
 
 fn main() -> eframe::Result {
-    // Headless subcommands (profile/handler/devices/launch) are dispatched
-    // before any GUI or monitor setup. We route to clap whenever arg 1 is a
-    // non-flag positional (doesn't start with '-'): the legacy invocations are
-    // all flags (--exec/--kwin/--fullscreen/--args/--help) or no args at all, so
-    // those still fall through to the GUI path. Letting clap own the parse means
-    // an unknown/typo'd subcommand gets a proper error + nonzero exit instead of
-    // silently launching the GUI, and new subcommands need no allowlist edit.
+    // A non-flag arg 1 is a headless subcommand; flags (--kwin/--exec/...) and
+    // no-args fall through to the GUI below.
     if let Some(first) = std::env::args().nth(1)
         && !first.starts_with('-')
     {
         use clap::Parser;
         match cli::Cli::parse().command {
             Some(command) => std::process::exit(cli::run(command)),
-            // Reachable only if clap accepts the args but yields no subcommand;
-            // treat as a usage error rather than falling into the GUI.
             None => std::process::exit(2),
         }
     }
