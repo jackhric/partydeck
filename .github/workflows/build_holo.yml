@@ -1,8 +1,7 @@
 name: CI (Holo / Steam Deck)
-# Builds against SteamOS Holo's glibc (2.41) so binaries run on the Deck.
-# Arch builds link glibc 2.43 and fail on-device with `GLIBC_2.43 not found`.
 on:
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -43,9 +42,12 @@ jobs:
       - name: Assemble output
         run: |
           mkdir -p partydeck
+
           cp target/release/partydeck partydeck/partydeck
+
           cp -r target/release/res partydeck/res
           cp -r target/release/bin partydeck/bin
+
           cp res/GamingModeLauncher.sh partydeck/GamingModeLauncher.sh
           cp LICENSE partydeck/LICENSE
           cp COPYING.md partydeck/thirdparty.txt
