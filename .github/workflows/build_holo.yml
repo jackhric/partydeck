@@ -40,13 +40,6 @@ jobs:
           export PATH="/.cargo/bin:$PATH"
           cargo build --release -F build_gamescope -F download_deps
 
-      - name: Verify glibc target
-        run: |
-          # Sanity check: the binary must not require a glibc newer than the Deck's.
-          echo "Highest GLIBC symbol version required by the binary:"
-          objdump -T target/release/partydeck 2>/dev/null \
-            | grep -oP 'GLIBC_\d+\.\d+' | sort -uV | tail -n 5 || true
-
       - name: Assemble output
         run: |
           mkdir -p partydeck
