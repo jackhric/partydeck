@@ -4,10 +4,11 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 
+use crate::app::{PadFilterType, PartyConfig, load_cfg, save_cfg};
 use crate::handler::scan_handlers;
 use crate::input::{DeviceType, PadButton, scan_input_devices};
+use crate::paths::PATH_PARTY;
 use crate::profiles::{create_profile, delete_profile, scan_profiles};
-use crate::app::PadFilterType;
 
 #[derive(Parser)]
 #[command(name = "partydeck", disable_help_subcommand = true)]
@@ -35,6 +36,10 @@ pub enum Command {
     MonitorInput {
         #[arg(long, value_enum, default_value_t = DeviceFilter::All)]
         filter: DeviceFilter,
+    },
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
     },
 }
 
@@ -66,6 +71,16 @@ pub enum ProfileAction {
 #[derive(Subcommand)]
 pub enum HandlerAction {
     List,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigAction {
+    /// Print the current PartyConfig as JSON.
+    Show,
+    /// Replace the whole PartyConfig from a JSON string.
+    SetJson { json: String },
+    /// Delete all Proton prefix data (PATH_PARTY/prefixes).
+    ErasePrefixes,
 }
 
 #[derive(Serialize)]
@@ -154,7 +169,36 @@ pub fn run(command: Command) -> i32 {
             print_json(&devices)
         }
         Command::MonitorInput { filter } => monitor_input(filter.into()),
+        Command::Config { action } => match action {
+            ConfigAction::Show => print_json(&load_cfg()),
+            ConfigAction::SetJson { json } => match serde_json::from_str::<PartyConfig>(&json) {
+                Ok(cfg) => match save_cfg(&cfg) {
+                    Ok(()) => 0,
+                    Err(e) => {
+                        eprintln!("[partydeck] failed to save config: {e}");
+                        1
+                    }
+                },
+                Err(e) => {
+                    eprintln!("[partydeck] invalid config JSON: {e}");
+                    1
+                }
+            },
+            ConfigAction::ErasePrefixes => erase_prefixes(),
+        },
     }
+}
+
+fn erase_prefixes() -> i32 {
+    let path = PATH_PARTY.join("prefixes");
+    if path.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&path) {
+            eprintln!("[partydeck] failed to erase prefix data: {e}");
+            return 1;
+        }
+    }
+    println!("[partydeck] Erased Proton prefix data");
+    0
 }
 
 #[derive(Serialize)]
