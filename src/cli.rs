@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::handler::scan_handlers;
 use crate::input::{DeviceType, PadButton, scan_input_devices};
-use crate::profiles::{create_profile, scan_profiles};
+use crate::profiles::{create_profile, delete_profile, scan_profiles};
 use crate::app::PadFilterType;
 
 #[derive(Parser)]
@@ -60,6 +60,7 @@ impl From<DeviceFilter> for PadFilterType {
 pub enum ProfileAction {
     List,
     Create { name: String },
+    Delete { name: String },
 }
 
 #[derive(Subcommand)]
@@ -113,6 +114,13 @@ pub fn run(command: Command) -> i32 {
                 Ok(()) => 0,
                 Err(e) => {
                     eprintln!("[partydeck] failed to create profile {name}: {e}");
+                    1
+                }
+            },
+            ProfileAction::Delete { name } => match delete_profile(&name) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("[partydeck] failed to delete profile {name}: {e}");
                     1
                 }
             },

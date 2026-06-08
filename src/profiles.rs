@@ -30,6 +30,25 @@ pub fn create_profile(name: &str) -> Result<(), std::io::Error> {
     Ok(())
 }
 
+pub fn delete_profile(name: &str) -> Result<(), Box<dyn Error>> {
+    // Guard against path traversal and the reserved guest name.
+    if name.is_empty()
+        || name == "Guest"
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+    {
+        return Err(format!("invalid profile name: {name}").into());
+    }
+    let path = PATH_PARTY.join("profiles").join(name);
+    if !path.is_dir() {
+        return Err(format!("profile not found: {name}").into());
+    }
+    println!("[partydeck] Deleting profile {name}");
+    std::fs::remove_dir_all(&path)?;
+    Ok(())
+}
+
 // Creates the "game save" folder for per-profile game data to go into
 pub fn create_profile_gamesave(name: &str, h: &Handler) -> Result<(), Box<dyn Error>> {
     let uid = h.handler_dir_name();
