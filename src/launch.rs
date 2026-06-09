@@ -6,7 +6,8 @@ use crate::handler::*;
 use crate::input::*;
 use crate::instance::*;
 use crate::paths::*;
-use crate::profiles::{create_profile, create_profile_gamesave};
+use crate::monitor::Monitor;
+use crate::profiles::{create_profile, create_profile_gamesave, remove_guest_profiles};
 use crate::util::*;
 
 pub fn setup_profiles(
@@ -28,6 +29,54 @@ pub fn setup_profiles(
     }
 
     Ok(())
+}
+
+/// Headless launch sequence shared by the GUI (`prepare_game_launch`) and the
+/// `launch` CLI subcommand. The GUI wraps this body in a spawned task with popup
+/// error dialogs; here we run synchronously and surface errors via Result so the
+/// caller can log to stderr (lands in the plugin's log.txt). `instances` carry
+/// device indices + profnames already; we only fill in resolutions here.
+pub fn run_launch(
+    handler: &Handler,
+    mut instances: Vec<Instance>,
+    input_devices: &[DeviceInfo],
+    cfg: &PartyConfig,
+    monitors: &[Monitor],
+) -> Result<(), Box<dyn std::error::Error>> {
+    if monitors.is_empty() {
+        return Err("no monitors detected".into());
+    }
+    if cfg.gamescope_sdl_backend {
+        set_instance_resolutions_multimonitor(&mut instances, &monitors.to_vec(), cfg);
+    } else {
+        set_instance_resolutions(&mut instances, &monitors[0], cfg);
+    }
+
+    setup_profiles(handler, &instances)?;
+
+    if handler.is_saved_handler()
+        && !cfg.disable_mount_gamedirs
+        && cfg.profile_unique_dirs
+    {
+        fuse_overlayfs_mount_gamedirs(handler, &instances)?;
+    }
+
+    let launch_result = launch_game(handler, input_devices, &instances, cfg);
+
+    // Best-effort cleanup regardless of launch outcome — mirrors the GUI path.
+    if cfg.enable_kwin_script
+        && let Err(err) = kwin_dbus_unload_script()
+    {
+        eprintln!("[partydeck] Error unloading KWin script: {err}");
+    }
+    if let Err(err) = remove_guest_profiles() {
+        eprintln!("[partydeck] Error removing guest profiles: {err}");
+    }
+    if let Err(err) = clear_tmp() {
+        eprintln!("[partydeck] Error removing tmp directory: {err}");
+    }
+
+    launch_result
 }
 
 pub fn launch_game(

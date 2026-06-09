@@ -2,11 +2,14 @@
 //! egui GUI. With no subcommand, main.rs falls through to the GUI/--kwin path.
 
 use clap::{Parser, Subcommand, ValueEnum};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::app::{PadFilterType, PartyConfig, load_cfg, save_cfg};
 use crate::handler::scan_handlers;
-use crate::input::{DeviceType, PadButton, scan_input_devices};
+use crate::input::{DeviceType, scan_input_devices};
+use crate::instance::Instance;
+use crate::launch::run_launch;
+use crate::monitor::get_monitors_errorless;
 use crate::paths::PATH_PARTY;
 use crate::profiles::{create_profile, delete_profile, scan_profiles};
 
@@ -32,15 +35,29 @@ pub enum Command {
         #[arg(long, value_enum, default_value_t = DeviceFilter::All)]
         filter: DeviceFilter,
     },
-    /// Stream input events as JSON lines (one per button press) until killed.
-    MonitorInput {
-        #[arg(long, value_enum, default_value_t = DeviceFilter::All)]
-        filter: DeviceFilter,
-    },
     Config {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Launch a handler headlessly with players bound to Steam Input pads.
+    /// Each player is mapped to a virtual pad by its XInput slot (see `devices`).
+    Launch {
+        /// Handler name (as in `handler list`).
+        #[arg(long)]
+        handler: String,
+        /// Path to a JSON file: [{ "profile": "Alice", "xinput": 0 }, ...].
+        /// Array order is split order (player 1 = top).
+        #[arg(long)]
+        players: String,
+    },
+}
+
+/// One player in the `launch --players` JSON file.
+#[derive(Deserialize)]
+struct PlayerSpec {
+    profile: String,
+    /// Steam Input XInput slot (== nXInputIndex == "Microsoft X-Box 360 pad N").
+    xinput: u32,
 }
 
 
@@ -104,6 +121,10 @@ struct DeviceDto {
     name: String,
     #[serde(rename = "type")]
     device_type: &'static str,
+    // For Steam Input virtual pads: the XInput slot (== Steam Input's
+    // nXInputIndex), so the plugin can map a lobby controller to this path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xinput_slot: Option<u32>,
 }
 
 fn device_type_str(t: DeviceType) -> &'static str {
@@ -164,11 +185,11 @@ pub fn run(command: Command) -> i32 {
                     path: d.path().to_string(),
                     name: d.fancyname().to_string(),
                     device_type: device_type_str(d.device_type()),
+                    xinput_slot: d.xinput_slot(),
                 })
                 .collect();
             print_json(&devices)
         }
-        Command::MonitorInput { filter } => monitor_input(filter.into()),
         Command::Config { action } => match action {
             ConfigAction::Show => print_json(&load_cfg()),
             ConfigAction::SetJson { json } => match serde_json::from_str::<PartyConfig>(&json) {
@@ -186,6 +207,83 @@ pub fn run(command: Command) -> i32 {
             },
             ConfigAction::ErasePrefixes => erase_prefixes(),
         },
+        Command::Launch { handler, players } => launch_headless(&handler, &players),
+    }
+}
+
+// Headless launch: resolve the handler, map each player's XInput slot to a Steam
+// Input virtual pad's evdev path, build one instance per player (array order =
+// split order), and run the shared launch sequence.
+fn launch_headless(handler_name: &str, players_path: &str) -> i32 {
+    let Some(handler) = scan_handlers().into_iter().find(|h| h.name == handler_name) else {
+        eprintln!("[partydeck] launch: no handler named {handler_name:?}");
+        return 1;
+    };
+
+    let players: Vec<PlayerSpec> = match std::fs::read_to_string(players_path) {
+        Ok(s) => match serde_json::from_str(&s) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[partydeck] launch: invalid players JSON: {e}");
+                return 1;
+            }
+        },
+        Err(e) => {
+            eprintln!("[partydeck] launch: cannot read players file {players_path:?}: {e}");
+            return 1;
+        }
+    };
+    if players.is_empty() {
+        eprintln!("[partydeck] launch: no players");
+        return 1;
+    }
+
+    // We bind the Steam Input virtual pads (vendor 0x28de); the lobby joins via
+    // Steam Input, so this is the device set that matches the lobby's pads.
+    let mut cfg = load_cfg();
+    cfg.pad_filter_type = PadFilterType::OnlySteamInput;
+    let devices = scan_input_devices(&cfg.pad_filter_type);
+    let dev_infos: Vec<_> = devices.iter().map(|d| d.info()).collect();
+
+    // Map XInput slot -> index into dev_infos. Only enabled gamepads with a slot.
+    let mut slot_to_index: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    for (i, d) in dev_infos.iter().enumerate() {
+        if d.enabled
+            && d.device_type == DeviceType::Gamepad
+            && let Some(slot) = d.xinput_slot
+        {
+            slot_to_index.entry(slot).or_insert(i);
+        }
+    }
+
+    let mut instances: Vec<Instance> = Vec::with_capacity(players.len());
+    for p in &players {
+        let Some(&dev_index) = slot_to_index.get(&p.xinput) else {
+            eprintln!(
+                "[partydeck] launch: no Steam Input pad for XInput slot {} (player {:?})",
+                p.xinput, p.profile
+            );
+            return 1;
+        };
+        instances.push(Instance {
+            devices: vec![dev_index],
+            profname: p.profile.clone(),
+            // Non-zero so it's treated as a real (non-guest) profile; profname is
+            // authoritative here since run_launch skips set_instance_names.
+            profselection: 1,
+            monitor: 0,
+            width: 0,
+            height: 0,
+        });
+    }
+
+    let monitors = get_monitors_errorless();
+    match run_launch(&handler, instances, &dev_infos, &cfg, &monitors) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("[partydeck] launch failed: {e}");
+            1
+        }
     }
 }
 
@@ -199,81 +297,6 @@ fn erase_prefixes() -> i32 {
     }
     println!("[partydeck] Erased Proton prefix data");
     0
-}
-
-#[derive(Serialize)]
-struct InputEventDto<'a> {
-    path: &'a str,
-    button: &'static str,
-}
-
-// Digital buttons only; dpad/stick arrive as axes and spam on analog drift.
-fn is_digital_button(b: &PadButton) -> bool {
-    matches!(
-        b,
-        PadButton::ABtn
-            | PadButton::BBtn
-            | PadButton::XBtn
-            | PadButton::YBtn
-            | PadButton::StartBtn
-            | PadButton::SelectBtn
-    )
-}
-
-fn pad_button_str(b: PadButton) -> &'static str {
-    match b {
-        PadButton::Left => "Left",
-        PadButton::Right => "Right",
-        PadButton::Up => "Up",
-        PadButton::Down => "Down",
-        PadButton::ABtn => "A",
-        PadButton::BBtn => "B",
-        PadButton::XBtn => "X",
-        PadButton::YBtn => "Y",
-        PadButton::StartBtn => "Start",
-        PadButton::SelectBtn => "Select",
-        PadButton::AKey => "KeyA",
-        PadButton::RKey => "KeyR",
-        PadButton::XKey => "KeyX",
-        PadButton::ZKey => "KeyZ",
-        PadButton::RightClick => "RightClick",
-    }
-}
-
-// Streams JSON button-press lines until the reader closes the pipe. Devices are
-// scanned once, so hotplugged controllers need a monitor restart.
-fn monitor_input(filter: PadFilterType) -> i32 {
-    use std::io::Write;
-    use std::time::Duration;
-
-    let mut devices: Vec<_> = scan_input_devices(&filter)
-        .into_iter()
-        .filter(|d| d.enabled())
-        .collect();
-    if devices.is_empty() {
-        eprintln!("[partydeck] monitor-input: no devices to watch");
-    }
-
-    let stdout = std::io::stdout();
-    loop {
-        for dev in devices.iter_mut() {
-            let path = dev.path().to_string();
-            let Some(button) = dev.poll().filter(is_digital_button) else {
-                continue;
-            };
-            let evt = InputEventDto {
-                path: &path,
-                button: pad_button_str(button),
-            };
-            if let Ok(line) = serde_json::to_string(&evt) {
-                let mut lock = stdout.lock();
-                if writeln!(lock, "{line}").is_err() || lock.flush().is_err() {
-                    return 0;
-                }
-            }
-        }
-        std::thread::sleep(Duration::from_millis(8));
-    }
 }
 
 fn print_json<T: Serialize>(value: &T) -> i32 {

@@ -408,15 +408,8 @@ impl PartyApp {
     }
 
     pub fn prepare_game_launch(&mut self) {
-        if self.options.gamescope_sdl_backend {
-            set_instance_resolutions_multimonitor(
-                &mut self.instances,
-                &self.monitors,
-                &self.options,
-            );
-        } else {
-            set_instance_resolutions(&mut self.instances, &self.monitors[0], &self.options);
-        }
+        // Resolutions are filled in by run_launch; names need self.profiles +
+        // guest randomization, so resolve them here before cloning instances.
         set_instance_names(&mut self.instances, &self.profiles);
 
         let handler = if let Some(h) = self.handler_lite.clone() {
@@ -427,6 +420,7 @@ impl PartyApp {
 
         let instances = self.instances.clone();
         let dev_infos: Vec<DeviceInfo> = self.input_devices.iter().map(|p| p.info()).collect();
+        let monitors = self.monitors.clone();
 
         let cfg = self.options.clone();
         let _ = save_cfg(&cfg);
@@ -437,37 +431,9 @@ impl PartyApp {
             move || {
                 sleep(std::time::Duration::from_secs_f32(1.5));
 
-                if let Err(err) = setup_profiles(&handler, &instances) {
-                    println!("[partydeck] Error mounting game directories: {}", err);
-                    msg("Failed mounting game directories", &format!("{err}"));
-                    return;
-                }
-                if handler.is_saved_handler()
-                    && !cfg.disable_mount_gamedirs
-                    && cfg.profile_unique_dirs
-                    && let Err(err) = fuse_overlayfs_mount_gamedirs(&handler, &instances)
-                {
-                    println!("[partydeck] Error mounting game directories: {}", err);
-                    msg("Failed mounting game directories", &format!("{err}"));
-                    return;
-                }
-                if let Err(err) = launch_game(&handler, &dev_infos, &instances, &cfg) {
-                    println!("[partydeck] Error launching instances: {}", err);
+                if let Err(err) = run_launch(&handler, instances, &dev_infos, &cfg, &monitors) {
+                    println!("[partydeck] Launch error: {}", err);
                     msg("Launch Error", &format!("{err}"));
-                }
-                if cfg.enable_kwin_script {
-                    if let Err(err) = kwin_dbus_unload_script() {
-                        println!("[partydeck] Error unloading KWin script: {}", err);
-                        msg("Failed unloading KWin script", &format!("{err}"));
-                    }
-                }
-                if let Err(err) = remove_guest_profiles() {
-                    println!("[partydeck] Error removing guest profiles: {}", err);
-                    msg("Failed removing guest profiles", &format!("{err}"));
-                }
-                if let Err(err) = clear_tmp() {
-                    println!("[partydeck] Error removing tmp directory: {}", err);
-                    msg("Failed removing tmp directory", &format!("{err}"));
                 }
             },
         );

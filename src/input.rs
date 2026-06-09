@@ -39,6 +39,12 @@ pub struct DeviceInfo {
     pub hidraw_paths: Vec<String>,
     pub enabled: bool,
     pub device_type: DeviceType,
+    /// XInput slot N for a Steam Input virtual pad (vendor 0x28de), parsed from
+    /// its "Microsoft X-Box 360 pad N" evdev name. None for physical devices.
+    /// This is the only stable key for virtual pads — their evdev Uniq is empty —
+    /// and it matches Steam Input's nXInputIndex, letting the plugin map a lobby
+    /// controller to a specific virtual pad path.
+    pub xinput_slot: Option<u32>,
 }
 
 pub struct InputDevice {
@@ -81,12 +87,24 @@ impl InputDevice {
     pub fn has_button_held(&self) -> bool {
         self.has_button_held
     }
+    /// XInput slot for a Steam Input virtual pad, else None. Steam Input names
+    /// its uinput pads "Microsoft X-Box 360 pad N" (N = nXInputIndex); the empty
+    /// Uniq leaves the name as the only stable per-pad key.
+    pub fn xinput_slot(&self) -> Option<u32> {
+        if self.dev.input_id().vendor() != 0x28de {
+            return None;
+        }
+        self.name()
+            .strip_prefix("Microsoft X-Box 360 pad ")
+            .and_then(|n| n.trim().parse::<u32>().ok())
+    }
     pub fn info(&self) -> DeviceInfo {
         DeviceInfo {
             path: self.path().to_string(),
             hidraw_paths: hidraw_siblings(self.path()),
             enabled: self.enabled(),
             device_type: self.device_type(),
+            xinput_slot: self.xinput_slot(),
         }
     }
     pub fn poll(&mut self) -> Option<PadButton> {

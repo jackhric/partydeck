@@ -16,14 +16,39 @@ use crate::paths::PATH_PARTY;
 use crate::profiles::remove_guest_profiles;
 use crate::util::*;
 
+// Headless subcommand tokens. A subcommand may appear AFTER GUI flags (e.g.
+// `partydeck --kwin --fullscreen launch ...`) so the launch can run inside the
+// KWin session — so we detect by token presence, not by arg-1 position.
+const SUBCOMMANDS: &[&str] = &[
+    "profile",
+    "handler",
+    "devices",
+    "monitor-input",
+    "config",
+    "launch",
+];
+
+fn first_subcommand_pos(args: &[String]) -> Option<usize> {
+    args.iter()
+        .position(|a| SUBCOMMANDS.contains(&a.as_str()))
+}
+
 fn main() -> eframe::Result {
-    // A non-flag arg 1 is a headless subcommand; flags (--kwin/--exec/...) and
-    // no-args fall through to the GUI below.
-    if let Some(first) = std::env::args().nth(1)
-        && !first.starts_with('-')
+    let all_args: Vec<String> = std::env::args().collect();
+
+    // If a subcommand is present but NOT --kwin, dispatch headless immediately.
+    // When --kwin IS present, fall into the kwin block first so the subcommand
+    // re-execs inside the session; the inner process (no --kwin) lands back here
+    // and dispatches.
+    if let Some(pos) = first_subcommand_pos(&all_args)
+        && !all_args.iter().any(|a| a == "--kwin")
     {
         use clap::Parser;
-        match cli::Cli::parse().command {
+        // Drop GUI-only flags before the subcommand so clap sees just the
+        // subcommand and its args (clap can't parse `--fullscreen launch ...`).
+        let mut cli_args: Vec<String> = vec![all_args[0].clone()];
+        cli_args.extend_from_slice(&all_args[pos..]);
+        match cli::Cli::parse_from(cli_args).command {
             Some(command) => std::process::exit(cli::run(command)),
             None => std::process::exit(2),
         }
