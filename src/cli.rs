@@ -246,12 +246,21 @@ fn launch_headless(handler_name: &str, players_path: &str) -> i32 {
         return 1;
     }
 
-    // Fail fast on a missing profile: it would otherwise surface as a cryptic
-    // bwrap bind error mid-launch.
+    // Fail fast on bad specs: a missing profile would otherwise surface as a
+    // cryptic bwrap bind error mid-launch, and a duplicated slot would feed one
+    // pad to two instances (double input).
     let profiles = scan_profiles(false);
+    let mut seen_slots = std::collections::HashSet::new();
     for p in &players {
         if !profiles.contains(&p.profile) {
             eprintln!("[partydeck] launch: no profile named {:?}", p.profile);
+            return 1;
+        }
+        if !seen_slots.insert(p.xinput) {
+            eprintln!(
+                "[partydeck] launch: XInput slot {} is assigned to more than one player",
+                p.xinput
+            );
             return 1;
         }
     }
