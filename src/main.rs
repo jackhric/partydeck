@@ -23,7 +23,6 @@ const SUBCOMMANDS: &[&str] = &[
     "profile",
     "handler",
     "devices",
-    "monitor-input",
     "config",
     "launch",
 ];
