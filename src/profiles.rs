@@ -5,6 +5,19 @@ use crate::{handler::Handler, paths::*, util::copy_dir_recursive};
 
 // Makes a folder and sets up Goldberg Steam Emu profile for Steam games
 pub fn create_profile(name: &str) -> Result<(), std::io::Error> {
+    // Same traversal guard as delete_profile. Leading '.' is allowed here
+    // (guest profiles); the CLI rejects it separately.
+    if name.is_empty()
+        || name == "Guest"
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid profile name: {name}"),
+        ));
+    }
     if PATH_PARTY.join(format!("profiles/{name}")).exists() {
         return Ok(());
     }

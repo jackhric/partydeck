@@ -146,13 +146,21 @@ pub fn run(command: Command) -> i32 {
                     .collect();
                 print_json(&profiles)
             }
-            ProfileAction::Create { name } => match create_profile(&name) {
-                Ok(()) => 0,
-                Err(e) => {
-                    eprintln!("[partydeck] failed to create profile {name}: {e}");
-                    1
+            ProfileAction::Create { name } => {
+                // Leading '.' marks guest profiles, which get auto-deleted on
+                // the next GUI start — don't let the plugin create one.
+                if name.starts_with('.') {
+                    eprintln!("[partydeck] invalid profile name {name:?}: leading '.' is reserved for guest profiles");
+                    return 1;
                 }
-            },
+                match create_profile(&name) {
+                    Ok(()) => 0,
+                    Err(e) => {
+                        eprintln!("[partydeck] failed to create profile {name}: {e}");
+                        1
+                    }
+                }
+            }
             ProfileAction::Delete { name } => match delete_profile(&name) {
                 Ok(()) => 0,
                 Err(e) => {
