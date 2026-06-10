@@ -16,46 +16,17 @@ use crate::paths::PATH_PARTY;
 use crate::profiles::remove_guest_profiles;
 use crate::util::*;
 
-// Headless subcommand tokens. A subcommand may appear AFTER GUI flags (e.g.
-// `partydeck --kwin --fullscreen launch ...`) so the launch can run inside the
-// KWin session — so we detect by token presence, not by arg-1 position.
-const SUBCOMMANDS: &[&str] = &[
-    "profile",
-    "handler",
-    "devices",
-    "config",
-    "launch",
-];
-
-fn first_subcommand_pos(args: &[String]) -> Option<usize> {
-    args.iter()
-        .position(|a| SUBCOMMANDS.contains(&a.as_str()))
-}
-
 fn main() -> eframe::Result {
-    let all_args: Vec<String> = std::env::args().collect();
+    use clap::Parser;
+    let cli = cli::Cli::parse();
 
-    // If a subcommand is present but NOT --kwin, dispatch headless immediately.
-    // When --kwin IS present, fall into the kwin block first so the subcommand
-    // re-execs inside the session; the inner process (no --kwin) lands back here
-    // and dispatches.
-    if let Some(pos) = first_subcommand_pos(&all_args)
-        && !all_args.iter().any(|a| a == "--kwin")
+    // Dispatch a subcommand headless unless --kwin is present; with --kwin we
+    // fall into the kwin block first so the subcommand re-execs inside the
+    // session, and the inner process (no --kwin) lands back here and dispatches.
+    if !cli.kwin
+        && let Some(command) = cli.command
     {
-        use clap::Parser;
-        // Drop GUI-only flags before the subcommand so clap sees just the
-        // subcommand and its args (clap can't parse `--fullscreen launch ...`).
-        let mut cli_args: Vec<String> = vec![all_args[0].clone()];
-        cli_args.extend_from_slice(&all_args[pos..]);
-        match cli::Cli::parse_from(cli_args).command {
-            Some(command) => std::process::exit(cli::run(command)),
-            None => std::process::exit(2),
-        }
-    }
-
-    if std::env::args().any(|arg| arg == "--help") {
-        println!("{}", USAGE_TEXT);
-        std::process::exit(0);
+        std::process::exit(cli::run(command));
     }
 
     let monitors = get_monitors_errorless();
@@ -70,9 +41,7 @@ fn main() -> eframe::Result {
         );
     }
 
-    let args: Vec<String> = std::env::args().collect();
-
-    if std::env::args().any(|arg| arg == "--kwin") {
+    if cli.kwin {
         let args: Vec<String> = std::env::args().filter(|arg| arg != "--kwin").collect();
 
         let (w, h) = (monitors[0].width(), monitors[0].height());
@@ -104,32 +73,13 @@ fn main() -> eframe::Result {
         }
     }
 
-    let mut exec = String::new();
-    let mut execargs = String::new();
-    if let Some(exec_index) = args.iter().position(|arg| arg == "--exec") {
-        if let Some(next_arg) = args.get(exec_index + 1) {
-            exec = next_arg.clone();
-        } else {
-            eprintln!("{}", USAGE_TEXT);
-            std::process::exit(1);
-        }
-    }
-    if let Some(execargs_index) = args.iter().position(|arg| arg == "--args") {
-        if let Some(next_arg) = args.get(execargs_index + 1) {
-            execargs = next_arg.clone();
-        } else {
-            eprintln!("{}", USAGE_TEXT);
-            std::process::exit(1);
-        }
-    }
+    let handler_lite = cli
+        .exec
+        .as_deref()
+        .filter(|exec| !exec.is_empty())
+        .map(|exec| Handler::from_cli(exec, &cli.args));
 
-    let handler_lite = if !exec.is_empty() {
-        Some(Handler::from_cli(&exec, &execargs))
-    } else {
-        None
-    };
-
-    let fullscreen = std::env::args().any(|arg| arg == "--fullscreen");
+    let fullscreen = cli.fullscreen;
 
     std::fs::create_dir_all(PATH_PARTY.join("handlers"))
         .expect("Failed to create handlers directory");
@@ -180,13 +130,3 @@ fn main() -> eframe::Result {
         }),
     )
 }
-
-static USAGE_TEXT: &str = r#"
-Usage: partydeck [OPTIONS]
-
-Options:
-    --exec <executable>   Execute the specified executable in splitscreen. If this isn't specified, PartyDeck will launch in the regular GUI mode.
-    --args [args]         Specify arguments for the executable to be launched with. Must be quoted if containing spaces.
-    --fullscreen          Start the GUI in fullscreen mode
-    --kwin                Launch PartyDeck inside of a KWin session
-"#;

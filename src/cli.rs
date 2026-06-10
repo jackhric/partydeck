@@ -16,6 +16,21 @@ use crate::profiles::{create_profile, delete_profile, scan_profiles};
 #[derive(Parser)]
 #[command(name = "partydeck", disable_help_subcommand = true)]
 pub struct Cli {
+    /// Launch PartyDeck inside of a KWin session.
+    // Global so it may appear before or after a subcommand: the plugin's
+    // launcher runs `--kwin --fullscreen launch ...` to re-exec the headless
+    // launch inside the nested session.
+    #[arg(long, global = true)]
+    pub kwin: bool,
+    /// Start the GUI in fullscreen mode.
+    #[arg(long, global = true)]
+    pub fullscreen: bool,
+    /// Execute the specified executable in splitscreen instead of the GUI.
+    #[arg(long)]
+    pub exec: Option<String>,
+    /// Arguments for the --exec executable. Must be quoted if containing spaces.
+    #[arg(long, default_value = "")]
+    pub args: String,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -148,8 +163,9 @@ pub fn run(command: Command) -> i32 {
             }
             ProfileAction::Create { name } => {
                 // Leading '.' marks guest profiles, which get auto-deleted on
-                // the next GUI start — don't let the plugin create one.
-                if name.starts_with('.') {
+                // the next GUI start — don't let the plugin create one. Names
+                // starting with ".." fall through to create_profile's guard.
+                if name.starts_with('.') && !name.starts_with("..") {
                     eprintln!("[partydeck] invalid profile name {name:?}: leading '.' is reserved for guest profiles");
                     return 1;
                 }
