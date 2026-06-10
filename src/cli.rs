@@ -246,6 +246,16 @@ fn launch_headless(handler_name: &str, players_path: &str) -> i32 {
         return 1;
     }
 
+    // Fail fast on a missing profile: it would otherwise surface as a cryptic
+    // bwrap bind error mid-launch.
+    let profiles = scan_profiles(false);
+    for p in &players {
+        if !profiles.contains(&p.profile) {
+            eprintln!("[partydeck] launch: no profile named {:?}", p.profile);
+            return 1;
+        }
+    }
+
     // We bind the Steam Input virtual pads (vendor 0x28de); the lobby joins via
     // Steam Input, so this is the device set that matches the lobby's pads.
     let mut cfg = load_cfg();
