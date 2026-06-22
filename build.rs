@@ -23,16 +23,13 @@ struct Dep {
 
 #[cfg(feature = "download_deps")]
 const DEPS: &[Dep] = &[
-    // Linux Goldberg pinned to release-2025_10_29 (the v0.8.5 era). Newer
-    // releases regress L4D2 — 2026-03-10 `regular` aborts in SteamAPI_Init.
-    // Re-validate on the Steam Deck before bumping.
     Dep {
         repo: "Detanup01/gbe_fork",
         asset_contains: "emu-linux-release.tar.bz2",
         archive_name: "emu-linux-release.tar.bz2",
         format: ArchFmt::TarBz2,
-        static_url: "https://github.com/Detanup01/gbe_fork/releases/download/release-2025_10_29/emu-linux-release.tar.bz2",
-        static_hash: "9209283089f6febd9c28ece554ad6d3199eaea303c81f23409d6f64c85c9ba91",
+        static_url: "https://github.com/Detanup01/gbe_fork/releases/download/release-2026_05_30/emu-linux-release.tar.bz2",
+        static_hash: "113cf4f0f44ac10285eb03df82148f288a27ddd685470c33060e968f83e97d87",
         marker: "gbe-linux/regular/x64/steamclient.so",
         rename_from: Some("gbe-linux"),
     },
@@ -41,8 +38,8 @@ const DEPS: &[Dep] = &[
         asset_contains: "emu-win-release.7z",
         archive_name: "emu-win-release.7z",
         format: ArchFmt::SevenZ,
-        static_url: "https://github.com/Detanup01/gbe_fork/releases/download/release-2026_03_10/emu-win-release.7z",
-        static_hash: "0f67a4212aa4e6a71f84879a3a00f675cb2a8c43e13e38e0b27ab5c9e6a5e65f",
+        static_url: "https://github.com/Detanup01/gbe_fork/releases/download/release-2026_05_30/emu-win-release.7z",
+        static_hash: "38d0ce822f78f5b22dd28d948f4b1c98bc65f5fc3a850b7775286743a60e3516",
         marker: "gbe-win/steamclient_experimental/steamclient.dll",
         rename_from: Some("gbe-win"),
     },
@@ -60,9 +57,9 @@ const DEPS: &[Dep] = &[
 
 // (src relative to project root, dst relative to target dir)
 const BUNDLE: &[(&str, &str)] = &[
-    // goldberg linux (from the pinned release-2025_10_29 download — see DEPS)
+    // goldberg linux
     ("deps/releases/gbe-linux/regular/x64/steamclient.so", "res/goldberg/linux64/steamclient.so"),
-    ("deps/releases/gbe-linux/regular/x32/steamclient.so", "res/goldberg/linux32/steamclient.so"),
+    ("deps/releases/gbe-linux/regular/x86/steamclient.so", "res/goldberg/linux32/steamclient.so"),
     // goldberg windows
     ("deps/releases/gbe-win/steamclient_experimental/steamclient.dll", "res/goldberg/win/steamclient.dll"),
     ("deps/releases/gbe-win/steamclient_experimental/steamclient64.dll", "res/goldberg/win/steamclient64.dll"),
