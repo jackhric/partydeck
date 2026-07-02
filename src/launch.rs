@@ -1,13 +1,15 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus, Stdio};
 
 use crate::app::{PartyConfig, PadFilterType};
+use crate::compositor::Compositor;
 use crate::handler::*;
 use crate::input::*;
 use crate::instance::*;
 use crate::paths::*;
 use crate::monitor::Monitor;
 use crate::profiles::{create_profile, create_profile_gamesave, remove_guest_profiles};
+use crate::session::Session;
 use crate::util::*;
 
 pub fn setup_profiles(
@@ -42,17 +44,27 @@ pub fn run_launch(
     input_devices: &[DeviceInfo],
     cfg: &PartyConfig,
     monitors: &[Monitor],
+    layout: Option<&partydeck_comp::layout::Layout>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if monitors.is_empty() {
         return Err("no monitors detected".into());
     }
-    if cfg.gamescope_sdl_backend {
-        set_instance_resolutions_multimonitor(&mut instances, &monitors.to_vec(), cfg);
+    let comp = if let Some(layout) = layout {
+        layout.validate(instances.len())?;
+        set_instance_resolutions_from_layout(&mut instances, &monitors[0], layout, cfg);
+        Some(Compositor::spawn(layout, monitors[0].width(), monitors[0].height())?)
     } else {
-        set_instance_resolutions(&mut instances, &monitors[0], cfg);
-    }
+        if cfg.gamescope_sdl_backend {
+            set_instance_resolutions_multimonitor(&mut instances, &monitors.to_vec(), cfg);
+        } else {
+            set_instance_resolutions(&mut instances, &monitors[0], cfg);
+        }
+        None
+    };
 
     setup_profiles(handler, &instances)?;
+
+    let session = Session::create(cfg);
 
     if handler.is_saved_handler()
         && !cfg.disable_mount_gamedirs
@@ -61,10 +73,12 @@ pub fn run_launch(
         fuse_overlayfs_mount_gamedirs(handler, &instances)?;
     }
 
-    let launch_result = launch_game(handler, input_devices, &instances, cfg);
+    let launch_result = launch_game(handler, input_devices, &instances, cfg, session.as_ref(), comp.as_ref());
+    drop(comp);
 
     // Best-effort cleanup regardless of launch outcome — mirrors the GUI path.
-    if cfg.enable_kwin_script
+    if layout.is_none()
+        && cfg.enable_kwin_script
         && let Err(err) = kwin_dbus_unload_script()
     {
         eprintln!("[partydeck] Error unloading KWin script: {err}");
@@ -84,11 +98,16 @@ pub fn launch_game(
     input_devices: &[DeviceInfo],
     instances: &Vec<Instance>,
     cfg: &PartyConfig,
+    session: Option<&Session>,
+    comp: Option<&Compositor>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let new_cmds = launch_cmds(h, input_devices, instances, cfg)?;
+    let new_cmds = launch_cmds(h, input_devices, instances, cfg, session, comp)?;
     print_launch_cmds(&new_cmds);
+    if let Some(session) = session {
+        session.write_manifest(h, instances, &new_cmds);
+    }
 
-    if cfg.enable_kwin_script {
+    if comp.is_none() && cfg.enable_kwin_script {
         let script = match cfg.vertical_two_player {
             true => "splitscreen_kwin_vertical.js",
             false => "splitscreen_kwin.js",
@@ -106,6 +125,19 @@ pub fn launch_game(
 
     let mut i = 0;
     for mut cmd in new_cmds {
+        if let Some(session) = session
+            && let Some(log) = session.instance_log(i)
+        {
+            // Redirecting the outer gamescope captures the whole
+            // gamescope→bwrap→umu→game subtree.
+            match log.try_clone() {
+                Ok(log2) => {
+                    cmd.stdout(Stdio::from(log));
+                    cmd.stderr(Stdio::from(log2));
+                }
+                Err(e) => eprintln!("[partydeck] Failed to clone instance log handle: {e}"),
+            }
+        }
         let handle = cmd.spawn().map_err(|e| {
             format!("Failed to start '{}': {}", cmd.get_program().to_string_lossy(), e)
         })?;
@@ -117,8 +149,24 @@ pub fn launch_game(
         i += 1;
     }
 
+    let mut statuses: Vec<Option<ExitStatus>> = Vec::new();
+    let mut wait_err: Option<std::io::Error> = None;
     for mut handle in handles {
-        handle.wait()?;
+        match handle.wait() {
+            Ok(status) => statuses.push(Some(status)),
+            Err(e) => {
+                statuses.push(None);
+                if wait_err.is_none() {
+                    wait_err = Some(e);
+                }
+            }
+        }
+    }
+    if let Some(session) = session {
+        session.finalize(&statuses);
+    }
+    if let Some(e) = wait_err {
+        return Err(e.into());
     }
 
     Ok(())
@@ -129,6 +177,8 @@ pub fn launch_cmds(
     input_devices: &[DeviceInfo],
     instances: &Vec<Instance>,
     cfg: &PartyConfig,
+    session: Option<&Session>,
+    comp: Option<&Compositor>,
 ) -> Result<Vec<std::process::Command>, Box<dyn std::error::Error>> {
     let win = h.win();
     let exec = Path::new(&h.exec);
@@ -221,6 +271,24 @@ pub fn launch_cmds(
             if cfg.proton_wow64 {
                 cmd.env("PROTON_USE_WOW64", "1");
             }
+            if cfg.debug_game_logs
+                && let Some(session) = session
+            {
+                // Per-instance dirs: instances share an appid, so Proton's
+                // log filename collides; default PROTON_LOG_DIR is the
+                // remapped per-profile HOME.
+                let log_dir = session.proton_log_dir(i);
+                if let Err(e) = std::fs::create_dir_all(&log_dir) {
+                    eprintln!(
+                        "[partydeck] Failed to create proton log dir {}: {e}",
+                        log_dir.display()
+                    );
+                } else {
+                    cmd.env("PROTON_LOG", "1");
+                    cmd.env("PROTON_LOG_DIR", &log_dir);
+                    cmd.env("UMU_LOG", "debug");
+                }
+            }
         }
         if cfg.pad_filter_type != PadFilterType::NoSteamInput {
             cmd.env("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD", "1");
@@ -249,7 +317,14 @@ pub fn launch_cmds(
         if cfg.gamescope_force_grab_cursor {
             cmd.arg("--force-grab-cursor");
         }
-        if cfg.gamescope_sdl_backend {
+        if let Some(comp) = comp {
+            // The instance renders into the compositor's per-player socket, so
+            // it must use the Wayland SDL backend and never a physical display.
+            cmd.env("WAYLAND_DISPLAY", comp.player_socket(i));
+            cmd.env("SDL_VIDEODRIVER", "wayland");
+            cmd.env_remove("DISPLAY");
+            cmd.arg("--backend=sdl");
+        } else if cfg.gamescope_sdl_backend {
             cmd.arg("--backend=sdl");
             cmd.arg(format!("--display-index={}", instance.monitor));
         }
@@ -355,6 +430,10 @@ pub fn launch_cmds(
                 cmd.env("SteamAppId", &appid.to_string());
                 cmd.env("SteamGameId", &appid.to_string());
             }
+
+            // Steam exports a 64-bit SteamOverlayGameId for our shortcut; Goldberg
+            // parses it as an out-of-range int and aborts. Drop it.
+            cmd.args(["--unsetenv", "SteamOverlayGameId"]);
 
             let sdk32_link = std::fs::read_link(PATH_STEAM.join("sdk32")).map_err(|e| format!("Failed to read sdk32 link: {}", e))?;
             let sdk64_link = std::fs::read_link(PATH_STEAM.join("sdk64")).map_err(|e| format!("Failed to read sdk64 link: {}", e))?;

@@ -1,0 +1,21 @@
+[package]
+name = "partydeck-comp"
+version = "0.1.0"
+edition = "2024"
+
+# The lib target (layout/presets/ipc serde types) is dependency-light so the
+# partydeck binary can share the schema without building smithay.
+[features]
+default = ["compositor"]
+compositor = ["dep:smithay", "dep:clap", "dep:image"]
+
+[dependencies]
+smithay = { version = "=0.7.0", default-features = false, features = ["backend_winit", "backend_egl", "backend_drm", "renderer_gl", "wayland_frontend", "desktop"], optional = true }
+clap = { version = "4.5", features = ["derive"], optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "partydeck-comp"
+required-features = ["compositor"]

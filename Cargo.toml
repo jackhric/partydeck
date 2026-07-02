@@ -3,6 +3,9 @@ name = "partydeck"
 version = "0.8.5"
 edition = "2024"
 
+[workspace]
+members = ["partydeck-comp"]
+
 [features]
 default = []
 download_deps = ["dep:reqwest", "dep:serde_json", "dep:tar", "dep:bzip2", "dep:sevenz-rust2", "dep:sha2"]
@@ -25,6 +28,7 @@ x11rb = { version = "0.13.1", default-features = false }
 zbus = { version = "5.5.0", features = ["async-io", "blocking-api"], default-features = false }
 steamlocate = "2.0.1"
 zip = { version = "5.1.1", features = ["deflate", "deflate64"], default-features = false }
+partydeck-comp = { path = "partydeck-comp", default-features = false }
 pathsearch = "0.2.0"
 
 [build-dependencies]

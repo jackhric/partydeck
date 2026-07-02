@@ -52,3 +52,12 @@ pub static BIN_GSC_KBM: LazyLock<PathBuf> = LazyLock::new(|| {
     let bin = env::current_exe().unwrap().parent().unwrap().join("bin");
     bin.join("gamescope-kbm")
 });
+
+pub static BIN_COMP: LazyLock<PathBuf> = LazyLock::new(|| {
+    if let Some(comp) = pathsearch::find_executable_in_path("partydeck-comp") {
+        return comp;
+    }
+
+    let bin = env::current_exe().unwrap().parent().unwrap().join("bin");
+    bin.join("partydeck-comp")
+});

@@ -64,10 +64,13 @@ pub enum Command {
         /// Array order is split order (player 1 = top).
         #[arg(long)]
         players: String,
+        /// Layout JSON file: {"preset": "grid"} or a full layout document.
+        /// When set, the session runs inside partydeck-comp instead of KWin.
+        #[arg(long)]
+        layout: Option<String>,
     },
 }
 
-/// One player in the `launch --players` JSON file.
 #[derive(Deserialize)]
 struct PlayerSpec {
     profile: String,
@@ -231,14 +234,42 @@ pub fn run(command: Command) -> i32 {
             },
             ConfigAction::ErasePrefixes => erase_prefixes(),
         },
-        Command::Launch { handler, players } => launch_headless(&handler, &players),
+        Command::Launch { handler, players, layout } => {
+            launch_headless(&handler, &players, layout.as_deref())
+        }
     }
 }
 
 // Headless launch: resolve the handler, map each player's XInput slot to a Steam
 // Input virtual pad's evdev path, build one instance per player (array order =
 // split order), and run the shared launch sequence.
-fn launch_headless(handler_name: &str, players_path: &str) -> i32 {
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum LayoutSpec {
+    Preset { preset: String },
+    Full(partydeck_comp::layout::Layout),
+}
+
+fn resolve_layout(path: &str, players: usize) -> Result<partydeck_comp::layout::Layout, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read layout file {path:?}: {e}"))?;
+    let spec: LayoutSpec = serde_json::from_str(&text).map_err(|e| format!("invalid layout JSON: {e}"))?;
+    let layout = match spec {
+        LayoutSpec::Full(layout) => layout,
+        LayoutSpec::Preset { preset } => match preset.as_str() {
+            "vertical" => match players {
+                1 => partydeck_comp::presets::fullscreen(),
+                2 => partydeck_comp::presets::halves_v(),
+                n => partydeck_comp::presets::quadrants(n),
+            },
+            "auto" | "horizontal" | "grid" => partydeck_comp::presets::quadrants(players),
+            other => return Err(format!("unknown layout preset {other:?}")),
+        },
+    };
+    layout.validate(players)?;
+    Ok(layout)
+}
+
+fn launch_headless(handler_name: &str, players_path: &str, layout_path: Option<&str>) -> i32 {
     let Some(handler) = scan_handlers().into_iter().find(|h| h.name == handler_name) else {
         eprintln!("[partydeck] launch: no handler named {handler_name:?}");
         return 1;
@@ -320,8 +351,16 @@ fn launch_headless(handler_name: &str, players_path: &str) -> i32 {
         });
     }
 
+    let layout = match layout_path.map(|p| resolve_layout(p, players.len())).transpose() {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("[partydeck] launch: {e}");
+            return 1;
+        }
+    };
+
     let monitors = get_monitors_errorless();
-    match run_launch(&handler, instances, &dev_infos, &cfg, &monitors) {
+    match run_launch(&handler, instances, &dev_infos, &cfg, &monitors, layout.as_ref()) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("[partydeck] launch failed: {e}");

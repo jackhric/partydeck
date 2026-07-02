@@ -42,6 +42,25 @@ pub fn set_instance_resolutions(
     }
 }
 
+pub fn set_instance_resolutions_from_layout(
+    instances: &mut Vec<Instance>,
+    primary_monitor: &Monitor,
+    layout: &partydeck_comp::layout::Layout,
+    cfg: &PartyConfig,
+) {
+    let rects = layout.resolve(primary_monitor.width(), primary_monitor.height());
+    for (instance, rect) in instances.iter_mut().zip(rects) {
+        let (mut w, mut h) = (rect.w.max(1) as u32, rect.h.max(1) as u32);
+        if h < 600 && cfg.gamescope_fix_lowres {
+            let ratio = w as f32 / h as f32;
+            h = 600;
+            w = (h as f32 * ratio) as u32;
+        }
+        instance.width = w;
+        instance.height = h;
+    }
+}
+
 pub fn set_instance_resolutions_multimonitor(
     instances: &mut Vec<Instance>,
     monitors: &Vec<Monitor>,

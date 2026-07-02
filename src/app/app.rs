@@ -431,7 +431,7 @@ impl PartyApp {
             move || {
                 sleep(std::time::Duration::from_secs_f32(1.5));
 
-                if let Err(err) = run_launch(&handler, instances, &dev_infos, &cfg, &monitors) {
+                if let Err(err) = run_launch(&handler, instances, &dev_infos, &cfg, &monitors, None) {
                     println!("[partydeck] Launch error: {}", err);
                     msg("Launch Error", &format!("{err}"));
                 }

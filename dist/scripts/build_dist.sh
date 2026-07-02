@@ -15,9 +15,11 @@ rm -rf "$RELEASE_DIR"
 mkdir -p "$RELEASE_DIR"
 
 cargo build --release -F build_gamescope -F download_deps
+cargo build --release -p partydeck-comp
 
 cp    "$CARGO_TARGET_DIR/release/partydeck" "$RELEASE_DIR/partydeck"
 cp -r "$CARGO_TARGET_DIR/release/bin"        "$RELEASE_DIR/bin"
+cp    "$CARGO_TARGET_DIR/release/partydeck-comp" "$RELEASE_DIR/bin/partydeck-comp"
 cp -r "$CARGO_TARGET_DIR/release/res"        "$RELEASE_DIR/res"
 cp res/GamingModeLauncher.sh "$RELEASE_DIR/GamingModeLauncher.sh"
 cp LICENSE                   "$RELEASE_DIR/LICENSE"

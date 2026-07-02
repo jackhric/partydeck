@@ -1,5 +1,6 @@
 mod app;
 mod cli;
+mod compositor;
 mod handler;
 mod input;
 mod instance;
@@ -7,6 +8,7 @@ mod launch;
 mod monitor;
 mod paths;
 mod profiles;
+mod session;
 mod util;
 
 use crate::app::*;

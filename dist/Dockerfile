@@ -15,13 +15,19 @@ RUN pacman -Sy --noconfirm --needed \
         git meson clang glslang libcap sdl2 vulkan-headers \
         libx11 libxmu libxcomposite libxrender libxres libxtst libxkbcommon \
         libdrm libinput wayland-protocols benchmark xorg-xwayland pipewire \
-        lcms2 hwdata seatd xcb-util-wm xcb-util-errors libdisplay-info \
+        lcms2 hwdata seatd xcb-util-wm xcb-util-errors \
         cmake libavif libheif aom rav1e libdecor libxdamage luajit libva \
         libxss wget curl xorg-server-xvfb fuse-overlayfs bubblewrap zsync \
         pulseaudio pipewire-audio alsa-plugins libxkbcommon-x11 libvdpau \
         libvdpau-va-gl sudo pkgconf openssl zip base-devel \
     && pacman -S --noconfirm --overwrite '*' libpipewire \
     && yes | pacman -Scc
+
+# MUST remove: if present, gamescope dynamically links gamescope-kbm against the
+# base image's libdisplay-info.so.2, but the Deck only ships .so.3, so the binary
+# fails to load and KBM games crash. Without it, meson statically links its
+# vendored copy. (Real pacman — the COPY'd shim below intercepts later.)
+RUN /usr/bin/pacman -Rdd --noconfirm libdisplay-info 2>/dev/null || true
 
 # Lets build_appimage.sh's debloated packages install here: see dist/scripts/pacman_shim.sh.
 COPY dist/scripts/pacman_shim.sh /usr/local/bin/pacman
