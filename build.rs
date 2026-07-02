@@ -68,6 +68,7 @@ const BUNDLE: &[(&str, &str)] = &[
     // umu
     ("deps/releases/umu/umu-run", "bin/umu-run"),
     // resources
+    ("res/comp/loading.png", "res/comp/loading.png"),
 ];
 
 

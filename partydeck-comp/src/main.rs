@@ -113,5 +113,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     event_loop.run(None, &mut data, |data| {
         let _ = data.display_handle.flush_clients();
     })?;
+
+    if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
+        let dir = std::path::Path::new(&runtime_dir);
+        for name in &data.state.socket_names {
+            let _ = std::fs::remove_file(dir.join(name));
+            let mut lock = name.clone();
+            lock.push(".lock");
+            let _ = std::fs::remove_file(dir.join(lock));
+        }
+        let _ = std::fs::remove_file(&control_path);
+        let mut ctl_lock = control_path.clone().into_os_string();
+        ctl_lock.push(".lock");
+        let _ = std::fs::remove_file(ctl_lock);
+    }
     Ok(())
 }

@@ -21,6 +21,7 @@ impl Compositor {
         height: u32,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR").map_err(|_| "XDG_RUNTIME_DIR not set")?;
+        sweep_stale_sockets(&runtime_dir);
         let dir = PathBuf::from(&runtime_dir).join("partydeck");
         std::fs::create_dir_all(&dir)?;
         let layout_path = dir.join("layout.json");
@@ -91,5 +92,26 @@ impl Drop for Compositor {
         std::thread::sleep(Duration::from_millis(200));
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+// Socket names carry the spawning partydeck's pid; a pattern-killed (or
+// SIGKILLed) session leaves them behind, so reap any whose owner is gone.
+fn sweep_stale_sockets(runtime_dir: &str) {
+    let Ok(entries) = std::fs::read_dir(runtime_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(rest) = name.strip_prefix("partydeck-") else {
+            continue;
+        };
+        let Some(pid) = rest.split(['-', '.']).next().and_then(|p| p.parse::<u32>().ok()) else {
+            continue;
+        };
+        if !PathBuf::from(format!("/proc/{pid}")).exists() {
+            let _ = std::fs::remove_file(entry.path());
+        }
     }
 }

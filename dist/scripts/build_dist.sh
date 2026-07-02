@@ -19,6 +19,15 @@ cargo build --release -p partydeck-comp
 
 cp    "$CARGO_TARGET_DIR/release/partydeck" "$RELEASE_DIR/partydeck"
 cp -r "$CARGO_TARGET_DIR/release/bin"        "$RELEASE_DIR/bin"
+# partydeck-comp must only link libraries stock SteamOS ships; a stray NEEDED
+# entry (e.g. libseat, libdisplay-info) means a feature crept in and the binary
+# will not load on the Deck.
+for lib in $(objdump -p "$CARGO_TARGET_DIR/release/partydeck-comp" | awk '/NEEDED/{print $2}'); do
+    case "$lib" in
+        libxkbcommon.so.*|libgcc_s.so.*|libm.so.*|libc.so.*|ld-linux-*.so.*) ;;
+        *) echo "ERROR: partydeck-comp links unexpected library: $lib" >&2; exit 1 ;;
+    esac
+done
 cp    "$CARGO_TARGET_DIR/release/partydeck-comp" "$RELEASE_DIR/bin/partydeck-comp"
 cp -r "$CARGO_TARGET_DIR/release/res"        "$RELEASE_DIR/res"
 cp res/GamingModeLauncher.sh "$RELEASE_DIR/GamingModeLauncher.sh"
