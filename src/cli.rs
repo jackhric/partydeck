@@ -16,11 +16,9 @@ use crate::profiles::{create_profile, delete_profile, scan_profiles};
 #[derive(Parser)]
 #[command(name = "partydeck", disable_help_subcommand = true)]
 pub struct Cli {
-    /// Launch PartyDeck inside of a KWin session.
-    // Global so it may appear before or after a subcommand: the plugin's
-    // launcher runs `--kwin --fullscreen launch ...` to re-exec the headless
-    // launch inside the nested session.
-    #[arg(long, global = true)]
+    // Deprecated no-op, hidden: pre-compositor launcher scripts on devices
+    // still pass it and must not crash clap.
+    #[arg(long, global = true, hide = true)]
     pub kwin: bool,
     /// Start the GUI in fullscreen mode.
     #[arg(long, global = true)]
@@ -255,15 +253,8 @@ fn resolve_layout(path: &str, players: usize) -> Result<partydeck_comp::layout::
     let spec: LayoutSpec = serde_json::from_str(&text).map_err(|e| format!("invalid layout JSON: {e}"))?;
     let layout = match spec {
         LayoutSpec::Full(layout) => layout,
-        LayoutSpec::Preset { preset } => match preset.as_str() {
-            "vertical" => match players {
-                1 => partydeck_comp::presets::fullscreen(),
-                2 => partydeck_comp::presets::halves_v(),
-                n => partydeck_comp::presets::quadrants(n),
-            },
-            "auto" | "horizontal" | "grid" => partydeck_comp::presets::quadrants(players),
-            other => return Err(format!("unknown layout preset {other:?}")),
-        },
+        LayoutSpec::Preset { preset } => partydeck_comp::presets::by_name(&preset, players)
+            .ok_or_else(|| format!("unknown layout preset {preset:?}"))?,
     };
     layout.validate(players)?;
     Ok(layout)
@@ -351,16 +342,20 @@ fn launch_headless(handler_name: &str, players_path: &str, layout_path: Option<&
         });
     }
 
-    let layout = match layout_path.map(|p| resolve_layout(p, players.len())).transpose() {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("[partydeck] launch: {e}");
-            return 1;
-        }
+    let layout = match layout_path {
+        Some(p) => match resolve_layout(p, players.len()) {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("[partydeck] launch: {e}");
+                return 1;
+            }
+        },
+        None => partydeck_comp::presets::by_name(&cfg.layout_preset, players.len())
+            .unwrap_or_else(|| partydeck_comp::presets::quadrants(players.len())),
     };
 
     let monitors = get_monitors_errorless();
-    match run_launch(&handler, instances, &dev_infos, &cfg, &monitors, layout.as_ref()) {
+    match run_launch(&handler, instances, &dev_infos, &cfg, &monitors, &layout) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("[partydeck] launch failed: {e}");

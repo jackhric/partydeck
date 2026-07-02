@@ -44,23 +44,14 @@ pub fn run_launch(
     input_devices: &[DeviceInfo],
     cfg: &PartyConfig,
     monitors: &[Monitor],
-    layout: Option<&partydeck_comp::layout::Layout>,
+    layout: &partydeck_comp::layout::Layout,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if monitors.is_empty() {
         return Err("no monitors detected".into());
     }
-    let comp = if let Some(layout) = layout {
-        layout.validate(instances.len())?;
-        set_instance_resolutions_from_layout(&mut instances, &monitors[0], layout, cfg);
-        Some(Compositor::spawn(layout, monitors[0].width(), monitors[0].height())?)
-    } else {
-        if cfg.gamescope_sdl_backend {
-            set_instance_resolutions_multimonitor(&mut instances, &monitors.to_vec(), cfg);
-        } else {
-            set_instance_resolutions(&mut instances, &monitors[0], cfg);
-        }
-        None
-    };
+    layout.validate(instances.len())?;
+    set_instance_resolutions_from_layout(&mut instances, &monitors[0], layout, cfg);
+    let comp = Compositor::spawn(layout, monitors[0].width(), monitors[0].height())?;
 
     setup_profiles(handler, &instances)?;
 
@@ -73,16 +64,10 @@ pub fn run_launch(
         fuse_overlayfs_mount_gamedirs(handler, &instances)?;
     }
 
-    let launch_result = launch_game(handler, input_devices, &instances, cfg, session.as_ref(), comp.as_ref());
+    let launch_result = launch_game(handler, input_devices, &instances, cfg, session.as_ref(), &comp);
     drop(comp);
 
     // Best-effort cleanup regardless of launch outcome — mirrors the GUI path.
-    if layout.is_none()
-        && cfg.enable_kwin_script
-        && let Err(err) = kwin_dbus_unload_script()
-    {
-        eprintln!("[partydeck] Error unloading KWin script: {err}");
-    }
     if let Err(err) = remove_guest_profiles() {
         eprintln!("[partydeck] Error removing guest profiles: {err}");
     }
@@ -99,21 +84,12 @@ pub fn launch_game(
     instances: &Vec<Instance>,
     cfg: &PartyConfig,
     session: Option<&Session>,
-    comp: Option<&Compositor>,
+    comp: &Compositor,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let new_cmds = launch_cmds(h, input_devices, instances, cfg, session, comp)?;
     print_launch_cmds(&new_cmds);
     if let Some(session) = session {
         session.write_manifest(h, instances, &new_cmds);
-    }
-
-    if comp.is_none() && cfg.enable_kwin_script {
-        let script = match cfg.vertical_two_player {
-            true => "splitscreen_kwin_vertical.js",
-            false => "splitscreen_kwin.js",
-        };
-
-        kwin_dbus_start_script(PATH_RES.join(script)).map_err(|e| format!("Failed to start KWin script: {}", e))?;
     }
 
     let sleep_time = match h.pause_between_starts {
@@ -178,7 +154,7 @@ pub fn launch_cmds(
     instances: &Vec<Instance>,
     cfg: &PartyConfig,
     session: Option<&Session>,
-    comp: Option<&Compositor>,
+    comp: &Compositor,
 ) -> Result<Vec<std::process::Command>, Box<dyn std::error::Error>> {
     let win = h.win();
     let exec = Path::new(&h.exec);
@@ -317,17 +293,12 @@ pub fn launch_cmds(
         if cfg.gamescope_force_grab_cursor {
             cmd.arg("--force-grab-cursor");
         }
-        if let Some(comp) = comp {
-            // The instance renders into the compositor's per-player socket, so
-            // it must use the Wayland SDL backend and never a physical display.
-            cmd.env("WAYLAND_DISPLAY", comp.player_socket(i));
-            cmd.env("SDL_VIDEODRIVER", "wayland");
-            cmd.env_remove("DISPLAY");
-            cmd.arg("--backend=sdl");
-        } else if cfg.gamescope_sdl_backend {
-            cmd.arg("--backend=sdl");
-            cmd.arg(format!("--display-index={}", instance.monitor));
-        }
+        // The instance renders into the compositor's per-player socket, so it
+        // must use the Wayland SDL backend and never a physical display.
+        cmd.env("WAYLAND_DISPLAY", comp.player_socket(i));
+        cmd.env("SDL_VIDEODRIVER", "wayland");
+        cmd.env_remove("DISPLAY");
+        cmd.arg("--backend=sdl");
         if cfg.kbm_support {
             let mut instance_has_keyboard = false;
             let mut instance_has_mouse = false;

@@ -425,16 +425,6 @@ impl PartyApp {
                     |i| self.profiles[i].clone(),
                 );
 
-                if self.options.gamescope_sdl_backend {
-                    ui.label("🖵");
-                    egui::ComboBox::from_id_salt(format!("monitors{i}")).show_index(
-                        ui,
-                        &mut instance.monitor,
-                        self.monitors.len(),
-                        |i| self.monitors[i].name(),
-                    );
-                }
-
                 if self.instance_add_dev == None {
                     let invitebtn = ui.add(
                         egui::Button::image_and_text(egui::include_image!("../../res/BTN_NORTH.png"), "[A] Invite New Device")
@@ -496,29 +486,21 @@ impl PartyApp {
             self.infotext = "DEFAULT: Enabled\n\nWARNING: CONTACTS GITHUB's SERVERS ON EVERY LAUNCH\nMakes partydeck check online for updates durring each launch, and notfies user when avaliable.".to_string();
         }
 
-        let enable_kwin_script_check = ui.checkbox(
-            &mut self.options.enable_kwin_script,
-            "(KDE) Automatically resize/reposition instances using KWin script",
-        );
-        if enable_kwin_script_check.hovered() {
-            self.infotext = "DEFAULT: Enabled\n\n Resizes/repositions instances to fit the screen using a KWin script. If using a desktop environment or window manager other than KDE Plasma, uncheck this; note that you will need to manually resize and reposition the windows.".to_string();
-        }
-
         ui.horizontal(|ui| {
-            let split_style_label = ui.label("Split style");
-            let r1 = ui.radio_value(
-                &mut self.options.vertical_two_player,
-                false,
-                "Horizontal",
-            );
-            let r2 = ui.radio_value(
-                &mut self.options.vertical_two_player,
-                true,
-                "Vertical",
-            );
-            if split_style_label.hovered() || r1.hovered() || r2.hovered() {
-                self.infotext =
-                    "DEFAULT: Horizontal\n\nChoose whether to split two-player games horizontally (above/below) instead of vertically (side by side).".to_string();
+            let label = ui.label("Split layout");
+            egui::ComboBox::from_id_salt("layout_preset")
+                .selected_text(self.options.layout_preset.clone())
+                .show_ui(ui, |ui| {
+                    for preset in ["auto", "horizontal", "vertical", "grid"] {
+                        ui.selectable_value(
+                            &mut self.options.layout_preset,
+                            preset.to_string(),
+                            preset,
+                        );
+                    }
+                });
+            if label.hovered() {
+                self.infotext = "DEFAULT: auto\n\nHow instances are tiled on screen. auto/horizontal: 2 players stack above/below, 3-4 players use a grid. vertical: 2 players sit side by side. grid: always quadrants.".to_string();
             }
         });
 
@@ -633,8 +615,6 @@ impl PartyApp {
             &mut self.options.gamescope_fix_lowres,
             "Automatically fix low resolution instances",
         );
-        let gamescope_sdl_backend_check =
-            ui.checkbox(&mut self.options.gamescope_sdl_backend, "Use SDL backend");
         let kbm_support_check = ui.checkbox(
             &mut self.options.kbm_support,
             "Enable keyboard and mouse support through custom Gamescope",
@@ -646,9 +626,6 @@ impl PartyApp {
 
         if gamescope_lowres_fix_check.hovered() {
             self.infotext = "Many games have graphical problems or even crash when running at resolutions below 600p. If this is enabled, any instances below 600p will automatically be resized before launching.".to_string();
-        }
-        if gamescope_sdl_backend_check.hovered() {
-            self.infotext = "Runs gamescope sessions using the SDL backend. This is required for multi-monitor support. If unsure, leave this checked. If gamescope sessions only show a black screen or give an error (especially on Nvidia + Wayland), try disabling this.".to_string();
         }
         if kbm_support_check.hovered() {
             self.infotext = "Runs a custom Gamescope build with support for holding keyboards and mice. If you want to use your own Gamescope installation, uncheck this.".to_string();

@@ -43,6 +43,18 @@ pub fn quadrants(players: usize) -> Layout {
     }
 }
 
+pub fn by_name(name: &str, players: usize) -> Option<Layout> {
+    match name {
+        "vertical" => Some(match players {
+            0 | 1 => fullscreen(),
+            2 => halves_v(),
+            n => quadrants(n),
+        }),
+        "auto" | "horizontal" | "grid" => Some(quadrants(players)),
+        _ => None,
+    }
+}
+
 pub fn three_player_l(big: usize) -> Layout {
     let big = big.min(2);
     let smalls = [
@@ -96,6 +108,14 @@ mod tests {
         for big in 0..3 {
             assert!(three_player_l(big).validate(3).is_ok(), "three_player_l({big})");
         }
+    }
+
+    #[test]
+    fn by_name_resolves_presets() {
+        assert_eq!(by_name("auto", 2), Some(quadrants(2)));
+        assert_eq!(by_name("vertical", 2), Some(halves_v()));
+        assert_eq!(by_name("grid", 4), Some(quadrants(4)));
+        assert_eq!(by_name("bogus", 2), None);
     }
 
     #[test]

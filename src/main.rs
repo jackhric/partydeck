@@ -22,12 +22,7 @@ fn main() -> eframe::Result {
     use clap::Parser;
     let cli = cli::Cli::parse();
 
-    // Dispatch a subcommand headless unless --kwin is present; with --kwin we
-    // fall into the kwin block first so the subcommand re-execs inside the
-    // session, and the inner process (no --kwin) lands back here and dispatches.
-    if !cli.kwin
-        && let Some(command) = cli.command
-    {
+    if let Some(command) = cli.command {
         std::process::exit(cli::run(command));
     }
 
@@ -41,38 +36,6 @@ fn main() -> eframe::Result {
             monitor.width(),
             monitor.height()
         );
-    }
-
-    if cli.kwin {
-        let args: Vec<String> = std::env::args().filter(|arg| arg != "--kwin").collect();
-
-        let (w, h) = (monitors[0].width(), monitors[0].height());
-        let mut cmd = std::process::Command::new("kwin_wayland");
-
-        cmd.arg("--xwayland");
-        cmd.arg("--width");
-        cmd.arg(w.to_string());
-        cmd.arg("--height");
-        cmd.arg(h.to_string());
-        cmd.arg("--exit-with-session");
-        cmd.env("PARTYDECK_SCREEN_WIDTH", w.to_string());
-        cmd.env("PARTYDECK_SCREEN_HEIGHT", h.to_string());
-        let args_string = args
-            .iter()
-            .map(|arg| format!("\"{}\"", arg))
-            .collect::<Vec<String>>()
-            .join(" ");
-        cmd.arg(args_string);
-
-        println!("[partydeck] Launching kwin session: {:?}", cmd);
-
-        match cmd.spawn() {
-            Ok(_) => std::process::exit(0),
-            Err(e) => {
-                eprintln!("[partydeck] Failed to start kwin_wayland: {}", e);
-                std::process::exit(1);
-            }
-        }
     }
 
     let handler_lite = cli

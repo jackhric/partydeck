@@ -1,2 +1,2 @@
 #!/bin/bash
-./partydeck --kwin --fullscreen > log.txt
+./partydeck --fullscreen > log.txt
