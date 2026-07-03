@@ -10,6 +10,7 @@ use crate::paths::BIN_COMP;
 
 pub struct Compositor {
     child: Child,
+    overlay_child: Option<Child>,
     pub socket_prefix: String,
     control_path: PathBuf,
 }
@@ -69,7 +70,8 @@ impl Compositor {
         }
 
         println!("[partydeck] compositor ready, sockets {socket_prefix}-p0..");
-        Ok(Self { child, socket_prefix, control_path })
+        let overlay_child = spawn_overlay_shell(&socket_prefix);
+        Ok(Self { child, overlay_child, socket_prefix, control_path })
     }
 
     pub fn player_socket(&self, slot: usize) -> String {
@@ -86,8 +88,45 @@ impl Compositor {
     }
 }
 
+// The overlay is optional chrome: no shell binary means the session runs bare.
+fn spawn_overlay_shell(socket_prefix: &str) -> Option<Child> {
+    let shell = match std::env::var_os("PARTYDECK_OVERLAY_SHELL") {
+        Some(path) => PathBuf::from(path),
+        None => BIN_COMP.parent()?.join("overlay-shell/cef-shell"),
+    };
+    if !shell.exists() {
+        return None;
+    }
+    let shell_dir = shell.parent()?.to_path_buf();
+    let url = std::env::var("OVERLAY_URL")
+        .unwrap_or_else(|_| format!("file://{}/overlay.html", shell_dir.display()));
+
+    match Command::new(&shell)
+        .env("WAYLAND_DISPLAY", format!("{socket_prefix}-overlay"))
+        .env("OVERLAY_URL", url)
+        .args(["--ozone-platform=headless", "--disable-gpu", "--no-sandbox"])
+        .current_dir(&shell_dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => {
+            println!("[partydeck] overlay shell spawned ({})", shell.display());
+            Some(child)
+        }
+        Err(e) => {
+            println!("[partydeck] warning: failed to spawn overlay shell {}: {e}", shell.display());
+            None
+        }
+    }
+}
+
 impl Drop for Compositor {
     fn drop(&mut self) {
+        if let Some(overlay) = self.overlay_child.as_mut() {
+            let _ = overlay.kill();
+            let _ = overlay.wait();
+        }
         let _ = self.send(&partydeck_comp::ipc::Command::Quit);
         std::thread::sleep(Duration::from_millis(200));
         let _ = self.child.kill();
