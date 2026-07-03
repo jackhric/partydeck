@@ -2903,7 +2903,7 @@ dependencies = [
  "evdev",
  "fastrand",
  "image",
- "partydeck-comp",
+ "partydeck-comp-proto",
  "pathsearch",
  "reqwest",
  "rfd",
@@ -2922,11 +2922,19 @@ name = "partydeck-comp"
 version = "0.1.0"
 dependencies = [
  "clap",
- "serde",
+ "partydeck-comp-proto",
  "serde_json",
  "smithay",
  "wayland-client",
  "wayland-protocols",
+]
+
+[[package]]
+name = "partydeck-comp-proto"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

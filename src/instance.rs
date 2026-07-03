@@ -15,7 +15,7 @@ pub struct Instance {
 pub fn set_instance_resolutions_from_layout(
     instances: &mut Vec<Instance>,
     primary_monitor: &Monitor,
-    layout: &partydeck_comp::layout::Layout,
+    layout: &partydeck_comp_proto::layout::Layout,
     cfg: &PartyConfig,
 ) {
     let rects = layout.resolve(primary_monitor.width(), primary_monitor.height());

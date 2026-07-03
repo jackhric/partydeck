@@ -5,7 +5,7 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Physical, Point, Size, SERIAL_COUNTER};
 use smithay::wayland::shell::xdg::ToplevelSurface;
 
-use partydeck_comp::layout::PixelRect;
+use partydeck_comp_proto::layout::PixelRect;
 
 use crate::state::{ClientState, CompState};
 

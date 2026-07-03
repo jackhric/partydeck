@@ -20,7 +20,7 @@ use smithay::wayland::shm::ShmState;
 use smithay::wayland::socket::ListeningSocketSource;
 use smithay::wayland::viewporter::ViewporterState;
 
-use partydeck_comp::layout::Layout;
+use partydeck_comp_proto::layout::Layout;
 
 use crate::backend::Backend;
 use crate::CalloopData;

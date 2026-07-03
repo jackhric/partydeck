@@ -432,8 +432,8 @@ impl PartyApp {
                 sleep(std::time::Duration::from_secs_f32(1.5));
 
                 let players = instances.len();
-                let layout = partydeck_comp::presets::by_name(&cfg.layout_preset, players)
-                    .unwrap_or_else(|| partydeck_comp::presets::quadrants(players));
+                let layout = partydeck_comp_proto::presets::by_name(&cfg.layout_preset, players)
+                    .unwrap_or_else(|| partydeck_comp_proto::presets::quadrants(players));
                 if let Err(err) = run_launch(&handler, instances, &dev_infos, &cfg, &monitors, &layout) {
                     println!("[partydeck] Launch error: {}", err);
                     msg("Launch Error", &format!("{err}"));

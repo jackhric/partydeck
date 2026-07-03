@@ -44,7 +44,7 @@ pub fn run_launch(
     input_devices: &[DeviceInfo],
     cfg: &PartyConfig,
     monitors: &[Monitor],
-    layout: &partydeck_comp::layout::Layout,
+    layout: &partydeck_comp_proto::layout::Layout,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if monitors.is_empty() {
         return Err("no monitors detected".into());

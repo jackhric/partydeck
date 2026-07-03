@@ -6,7 +6,7 @@ use smithay::reexports::calloop::EventLoop;
 use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::socket::ListeningSocketSource;
 
-use partydeck_comp::ipc::{Command, Response};
+use partydeck_comp_proto::ipc::{Command, Response};
 
 use crate::state::CompState;
 use crate::{slots, CalloopData};
@@ -46,11 +46,11 @@ fn handle_connection(mut stream: &UnixStream, state: &mut CompState) {
     };
     let line = match std::str::from_utf8(&buf[..pos])
         .map_err(|e| e.to_string())
-        .and_then(|s| partydeck_comp::ipc::decode_command(s).map_err(|e| e.to_string()))
+        .and_then(|s| partydeck_comp_proto::ipc::decode_command(s).map_err(|e| e.to_string()))
     {
         Ok(Command::GetState) => format!("{}\n", state_json(state)),
-        Ok(cmd) => partydeck_comp::ipc::encode(&apply(state, cmd)).unwrap_or_default(),
-        Err(e) => partydeck_comp::ipc::encode(&Response::Err(e)).unwrap_or_default(),
+        Ok(cmd) => partydeck_comp_proto::ipc::encode(&apply(state, cmd)).unwrap_or_default(),
+        Err(e) => partydeck_comp_proto::ipc::encode(&Response::Err(e)).unwrap_or_default(),
     };
     let _ = stream.write_all(line.as_bytes());
 }

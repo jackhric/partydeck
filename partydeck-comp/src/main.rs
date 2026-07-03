@@ -34,16 +34,16 @@ struct Args {
     size: (u32, u32),
 }
 
-fn load_layout(args: &Args) -> Result<partydeck_comp::layout::Layout, String> {
+fn load_layout(args: &Args) -> Result<partydeck_comp_proto::layout::Layout, String> {
     let layout = match &args.layout {
         Some(path) => {
             let text = std::fs::read_to_string(path)
                 .map_err(|e| format!("cannot read layout {}: {e}", path.display()))?;
             serde_json::from_str(&text).map_err(|e| format!("invalid layout json: {e}"))?
         }
-        None => partydeck_comp::presets::quadrants(args.players),
+        None => partydeck_comp_proto::presets::quadrants(args.players),
     };
-    let layout: partydeck_comp::layout::Layout = layout;
+    let layout: partydeck_comp_proto::layout::Layout = layout;
     layout.validate(layout.slots.len())?;
     Ok(layout)
 }

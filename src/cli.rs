@@ -245,15 +245,15 @@ pub fn run(command: Command) -> i32 {
 #[serde(untagged)]
 enum LayoutSpec {
     Preset { preset: String },
-    Full(partydeck_comp::layout::Layout),
+    Full(partydeck_comp_proto::layout::Layout),
 }
 
-fn resolve_layout(path: &str, players: usize) -> Result<partydeck_comp::layout::Layout, String> {
+fn resolve_layout(path: &str, players: usize) -> Result<partydeck_comp_proto::layout::Layout, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read layout file {path:?}: {e}"))?;
     let spec: LayoutSpec = serde_json::from_str(&text).map_err(|e| format!("invalid layout JSON: {e}"))?;
     let layout = match spec {
         LayoutSpec::Full(layout) => layout,
-        LayoutSpec::Preset { preset } => partydeck_comp::presets::by_name(&preset, players)
+        LayoutSpec::Preset { preset } => partydeck_comp_proto::presets::by_name(&preset, players)
             .ok_or_else(|| format!("unknown layout preset {preset:?}"))?,
     };
     layout.validate(players)?;
@@ -350,8 +350,8 @@ fn launch_headless(handler_name: &str, players_path: &str, layout_path: Option<&
                 return 1;
             }
         },
-        None => partydeck_comp::presets::by_name(&cfg.layout_preset, players.len())
-            .unwrap_or_else(|| partydeck_comp::presets::quadrants(players.len())),
+        None => partydeck_comp_proto::presets::by_name(&cfg.layout_preset, players.len())
+            .unwrap_or_else(|| partydeck_comp_proto::presets::quadrants(players.len())),
     };
 
     let monitors = get_monitors_errorless();
