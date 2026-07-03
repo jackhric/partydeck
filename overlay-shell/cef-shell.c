@@ -38,6 +38,7 @@ static struct xdg_toplevel* toplevel;
 static struct wl_buffer* buffers[2];
 static void* pixels[2];
 static int buffer_busy[2];
+static int buffer_stale[2];
 static int configured;
 static int running = 1;
 
@@ -208,9 +209,23 @@ static void CEF_CALLBACK on_paint(cef_render_handler_t* self, cef_browser_t* bro
     }
     int idx = !buffer_busy[0] ? 0 : (!buffer_busy[1] ? 1 : -1);
     if (idx < 0) {
-        return; // both busy; skip this frame, CEF will repaint
+        // Both busy: skip and make sure both resync from CEF's next full frame.
+        buffer_stale[0] = buffer_stale[1] = 1;
+        return;
     }
-    // CEF gives the full BGRA frame; copy only the damaged rows per rect.
+    // CEF hands us the full BGRA frame each paint, so a buffer that missed
+    // frames while busy can always be healed with one full copy.
+    if (buffer_stale[idx]) {
+        memcpy(pixels[idx], buffer, BUFSZ);
+        buffer_stale[idx] = 0;
+        buffer_busy[idx] = 1;
+        wl_surface_attach(surface, buffers[idx], 0, 0);
+        wl_surface_damage_buffer(surface, 0, 0, W, H);
+        wl_surface_commit(surface);
+        wl_display_flush(dpy);
+        buffer_stale[idx ^ 1] = 1;
+        return;
+    }
     for (size_t i = 0; i < n_rects; i++) {
         const cef_rect_t* r = &rects[i];
         for (int y = r->y; y < r->y + r->height; y++) {
@@ -219,19 +234,8 @@ static void CEF_CALLBACK on_paint(cef_render_handler_t* self, cef_browser_t* bro
                    (size_t)r->width * 4);
         }
     }
-    // The other buffer may hold older content; sync the damage there too on
-    // the next flip via full copy of this frame's rects into both.
-    int other = idx ^ 1;
-    if (!buffer_busy[other]) {
-        for (size_t i = 0; i < n_rects; i++) {
-            const cef_rect_t* r = &rects[i];
-            for (int y = r->y; y < r->y + r->height; y++) {
-                memcpy((char*)pixels[other] + y * STRIDE + r->x * 4,
-                       (const char*)buffer + y * STRIDE + r->x * 4,
-                       (size_t)r->width * 4);
-            }
-        }
-    }
+    // The other buffer misses this frame's rects; it must resync before reuse.
+    buffer_stale[idx ^ 1] = 1;
     buffer_busy[idx] = 1;
     wl_surface_attach(surface, buffers[idx], 0, 0);
     for (size_t i = 0; i < n_rects; i++) {
@@ -270,8 +274,11 @@ int main(int argc, char** argv) {
     settings.external_message_pump = 1;
     settings.log_severity = LOGSEVERITY_WARNING;
     settings.background_color = 0x00000000;
-    cef_string_utf8_to_utf16("/tmp/cef-overlay-cache", strlen("/tmp/cef-overlay-cache"),
-                             &settings.root_cache_path);
+    // Per-pid cache: a poisoned cache from a crashed run makes the GPU process
+    // crashloop on the next start. /tmp is tmpfs on SteamOS; reboot reaps them.
+    static char cache_path[64];
+    snprintf(cache_path, sizeof(cache_path), "/tmp/cef-overlay-cache-%d", getpid());
+    cef_string_utf8_to_utf16(cache_path, strlen(cache_path), &settings.root_cache_path);
 
     if (!cef_initialize(&main_args, &settings, NULL, NULL)) {
         fprintf(stderr, "cef_initialize failed\n");
