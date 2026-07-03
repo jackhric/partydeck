@@ -1,4 +1,4 @@
-// cef-shell v2: CEF off-screen rendering into our own transparent Wayland
+// cef-overlay: CEF off-screen rendering into our own transparent Wayland
 // surface. OSR preserves per-pixel alpha, which windowed CEF on Wayland
 // cannot provide; we own the wl_surface so input region and buffer
 // lifecycle stay under PartyDeck's control.
@@ -79,14 +79,14 @@ static const struct wl_buffer_listener buffer_listener_0 = {buffer_release};
 static int wayland_init(void) {
     dpy = wl_display_connect(NULL);
     if (!dpy) {
-        fprintf(stderr, "cef-shell2: cannot connect wayland display\n");
+        fprintf(stderr, "cef-overlay: cannot connect wayland display\n");
         return 0;
     }
     struct wl_registry* reg = wl_display_get_registry(dpy);
     wl_registry_add_listener(reg, &registry_listener, NULL);
     wl_display_roundtrip(dpy);
     if (!compositor || !shm || !wm_base) {
-        fprintf(stderr, "cef-shell2: missing globals\n");
+        fprintf(stderr, "cef-overlay: missing globals\n");
         return 0;
     }
     xdg_wm_base_add_listener(wm_base, &wm_listener, NULL);
@@ -110,7 +110,7 @@ static int wayland_init(void) {
 
     int fd = memfd_create("overlay-shm", 0);
     if (fd < 0 || ftruncate(fd, BUFSZ * 2) < 0) {
-        fprintf(stderr, "cef-shell2: shm alloc failed\n");
+        fprintf(stderr, "cef-overlay: shm alloc failed\n");
         return 0;
     }
     void* map = mmap(NULL, BUFSZ * 2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -328,7 +328,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    printf("cef-shell2: running\n");
+    printf("cef-overlay: running\n");
     fflush(stdout);
 
     // External pump: interleave wayland dispatch with CEF work. Crude fixed
@@ -336,10 +336,20 @@ int main(int argc, char** argv) {
     struct pollfd pfd = {.fd = wl_display_get_fd(dpy), .events = POLLIN};
     int ticks = 0;
     while (running) {
-        wl_display_dispatch_pending(dpy);
+        if (wl_display_dispatch_pending(dpy) < 0) {
+            fprintf(stderr, "cef-overlay: wayland dispatch failed, shutting down\n");
+            break;
+        }
         wl_display_flush(dpy);
-        if (poll(&pfd, 1, 4) > 0 && (pfd.revents & POLLIN)) {
-            wl_display_dispatch(dpy);
+        if (poll(&pfd, 1, 4) > 0) {
+            if (pfd.revents & (POLLHUP | POLLERR)) {
+                fprintf(stderr, "cef-overlay: compositor gone, shutting down\n");
+                break;
+            }
+            if ((pfd.revents & POLLIN) && wl_display_dispatch(dpy) < 0) {
+                fprintf(stderr, "cef-overlay: wayland dispatch failed, shutting down\n");
+                break;
+            }
         }
         cef_do_message_loop_work();
         if (++ticks >= 50) { // roughly 4-5 state pushes per second

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-use partydeck_comp::layout::Layout;
+use partydeck_comp_proto::layout::Layout;
 
 use crate::paths::BIN_COMP;
 
@@ -70,7 +70,7 @@ impl Compositor {
         }
 
         println!("[partydeck] compositor ready, sockets {socket_prefix}-p0..");
-        let overlay_child = spawn_overlay_shell(&socket_prefix);
+        let overlay_child = spawn_cef_overlay(&socket_prefix);
         Ok(Self { child, overlay_child, socket_prefix, control_path })
     }
 
@@ -78,10 +78,10 @@ impl Compositor {
         format!("{}-p{}", self.socket_prefix, slot)
     }
 
-    pub fn send(&self, command: &partydeck_comp::ipc::Command) -> Result<partydeck_comp::ipc::Response, Box<dyn std::error::Error>> {
+    pub fn send(&self, command: &partydeck_comp_proto::ipc::Command) -> Result<partydeck_comp_proto::ipc::Response, Box<dyn std::error::Error>> {
         let mut stream = UnixStream::connect(&self.control_path)?;
         stream.set_read_timeout(Some(Duration::from_secs(2)))?;
-        stream.write_all(partydeck_comp::ipc::encode(command)?.as_bytes())?;
+        stream.write_all(partydeck_comp_proto::ipc::encode(command)?.as_bytes())?;
         let mut buf = String::new();
         BufReader::new(&mut stream).read_line(&mut buf)?;
         Ok(serde_json::from_str(&buf)?)
@@ -89,10 +89,10 @@ impl Compositor {
 }
 
 // The overlay is optional chrome: no shell binary means the session runs bare.
-fn spawn_overlay_shell(socket_prefix: &str) -> Option<Child> {
-    let shell = match std::env::var_os("PARTYDECK_OVERLAY_SHELL") {
+fn spawn_cef_overlay(socket_prefix: &str) -> Option<Child> {
+    let shell = match std::env::var_os("PARTYDECK_CEF_OVERLAY") {
         Some(path) => PathBuf::from(path),
-        None => BIN_COMP.parent()?.join("overlay-shell/cef-shell"),
+        None => BIN_COMP.parent()?.join("cef-overlay/cef-overlay"),
     };
     if !shell.exists() {
         return None;
@@ -111,11 +111,11 @@ fn spawn_overlay_shell(socket_prefix: &str) -> Option<Child> {
         .spawn()
     {
         Ok(child) => {
-            println!("[partydeck] overlay shell spawned ({})", shell.display());
+            println!("[partydeck] cef-overlay spawned ({})", shell.display());
             Some(child)
         }
         Err(e) => {
-            println!("[partydeck] warning: failed to spawn overlay shell {}: {e}", shell.display());
+            println!("[partydeck] warning: failed to spawn cef-overlay {}: {e}", shell.display());
             None
         }
     }
@@ -127,7 +127,7 @@ impl Drop for Compositor {
             let _ = overlay.kill();
             let _ = overlay.wait();
         }
-        let _ = self.send(&partydeck_comp::ipc::Command::Quit);
+        let _ = self.send(&partydeck_comp_proto::ipc::Command::Quit);
         std::thread::sleep(Duration::from_millis(200));
         let _ = self.child.kill();
         let _ = self.child.wait();

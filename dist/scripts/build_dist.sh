@@ -29,7 +29,7 @@ for lib in $(objdump -p "$CARGO_TARGET_DIR/release/partydeck-comp" | awk '/NEEDE
     esac
 done
 cp    "$CARGO_TARGET_DIR/release/partydeck-comp" "$RELEASE_DIR/bin/partydeck-comp"
-sh overlay-shell/package.sh "$RELEASE_DIR/bin/overlay-shell"
+make -C cef-overlay package OUT="$PWD/$RELEASE_DIR/bin/cef-overlay"
 cp -r "$CARGO_TARGET_DIR/release/res"        "$RELEASE_DIR/res"
 cp res/GamingModeLauncher.sh "$RELEASE_DIR/GamingModeLauncher.sh"
 cp LICENSE                   "$RELEASE_DIR/LICENSE"
