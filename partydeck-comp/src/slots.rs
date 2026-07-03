@@ -46,7 +46,11 @@ pub fn map_toplevel(state: &mut CompState, surface: ToplevelSurface) {
         let window = Window::new_wayland_window(surface);
         state.space.map_element(window.clone(), (0, 0), false);
         state.space.raise_element(&window, false);
-        state.overlay_window = Some(window);
+        // A replacement overlay client (crash restart, upgrade) supersedes the
+        // old surface entirely; leaving it mapped would stack stale content.
+        if let Some(old) = state.overlay_window.replace(window) {
+            state.space.unmap_elem(&old);
+        }
         return;
     }
     let slot = slot_of(&surface);
@@ -158,6 +162,9 @@ pub fn relayout(state: &mut CompState) {
         }
         state.space.map_element(window.clone(), (r.x, r.y), false);
     }
+    // Re-mapping slots puts them at the top of the stack; the overlay must
+    // stay above them.
+    raise_overlay(state);
 }
 
 pub fn handle_output_resize(state: &mut CompState, size: Size<i32, Physical>) {
