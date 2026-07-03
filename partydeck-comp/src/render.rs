@@ -73,14 +73,22 @@ pub fn redraw(state: &mut CompState, display_handle: &mut DisplayHandle) {
         clear_color,
         layout,
         slot_windows,
+        overlay_window,
         assets,
         ..
     } = state;
 
     let size = backend.winit.window_size();
     let damage = Rectangle::from_size(size);
-    let overlay_elements =
-        crate::overlay::build(layout, slot_windows, assets, *start_time, size, backend.winit.renderer());
+    let overlay_elements = crate::overlay::build(
+        layout,
+        slot_windows,
+        overlay_window.is_some(),
+        assets,
+        *start_time,
+        size,
+        backend.winit.renderer(),
+    );
 
     let states = {
         let (renderer, mut framebuffer) = backend.winit.bind().unwrap();

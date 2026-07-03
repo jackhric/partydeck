@@ -62,13 +62,19 @@ fn load_png(name: &str) -> Option<(MemoryRenderBuffer, (i32, i32))> {
 pub fn build(
     layout: &Layout,
     slot_windows: &[Option<Window>],
+    overlay_connected: bool,
     assets: &Assets,
     start_time: std::time::Instant,
     size: Size<i32, Physical>,
     renderer: &mut GlesRenderer,
 ) -> Vec<OverlayElement> {
-    let rects = layout.resolve(size.w.max(1) as u32, size.h.max(1) as u32);
     let mut elements = Vec::new();
+    // An attached overlay client owns ALL session chrome (focus ring, loading
+    // states); the native elements are the fallback when none is connected.
+    if overlay_connected {
+        return elements;
+    }
+    let rects = layout.resolve(size.w.max(1) as u32, size.h.max(1) as u32);
 
     let t = start_time.elapsed().as_secs_f32();
     let pulse = 0.65 + 0.35 * (t * 3.0).sin().abs();

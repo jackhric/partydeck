@@ -21,6 +21,9 @@ pub enum Command {
     },
     Ping,
     Quit,
+    /// Replied to with a session-state document (not a Response): slot pixel
+    /// rects, liveness, status, focus, output size.
+    GetState,
 }
 
 #[derive(Debug, Clone, PartialEq)]

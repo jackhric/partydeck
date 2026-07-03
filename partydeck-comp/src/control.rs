@@ -44,20 +44,51 @@ fn handle_connection(mut stream: &UnixStream, state: &mut CompState) {
     let Some(pos) = buf.iter().position(|&b| b == b'\n') else {
         return;
     };
-    let response = match std::str::from_utf8(&buf[..pos])
+    let line = match std::str::from_utf8(&buf[..pos])
         .map_err(|e| e.to_string())
         .and_then(|s| partydeck_comp::ipc::decode_command(s).map_err(|e| e.to_string()))
     {
-        Ok(cmd) => apply(state, cmd),
-        Err(e) => Response::Err(e),
+        Ok(Command::GetState) => format!("{}\n", state_json(state)),
+        Ok(cmd) => partydeck_comp::ipc::encode(&apply(state, cmd)).unwrap_or_default(),
+        Err(e) => partydeck_comp::ipc::encode(&Response::Err(e)).unwrap_or_default(),
     };
-    if let Ok(msg) = partydeck_comp::ipc::encode(&response) {
-        let _ = stream.write_all(msg.as_bytes());
-    }
+    let _ = stream.write_all(line.as_bytes());
+}
+
+fn state_json(state: &CompState) -> String {
+    let size = state.backend.winit.window_size();
+    let rects = state.layout.resolve(size.w.max(1) as u32, size.h.max(1) as u32);
+    let slots: Vec<serde_json::Value> = rects
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let live = state.slot_windows.get(i).map(|w| w.is_some()).unwrap_or(false);
+            let (status, label) = state
+                .slot_status
+                .get(i)
+                .and_then(|s| s.clone())
+                .map(|(s, l)| (Some(s), l))
+                .unwrap_or((None, None));
+            serde_json::json!({
+                "rect": {"x": r.x, "y": r.y, "w": r.w, "h": r.h},
+                "live": live,
+                "status": status,
+                "label": label,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "size": {"w": size.w, "h": size.h},
+        "focus": state.layout.focus,
+        "slots": slots,
+    })
+    .to_string()
 }
 
 fn apply(state: &mut CompState, cmd: Command) -> Response {
     match cmd {
+        // Handled before apply(); a stray arrival is harmless.
+        Command::GetState => Response::Ok,
         Command::Ping => Response::Ok,
         Command::Quit => {
             state.loop_signal.stop();

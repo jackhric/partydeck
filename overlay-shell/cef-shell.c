@@ -13,9 +13,13 @@
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
 
+#include <sys/socket.h>
+#include <sys/un.h>
+
 #include "include/capi/cef_app_capi.h"
 #include "include/capi/cef_browser_capi.h"
 #include "include/capi/cef_client_capi.h"
+#include "include/capi/cef_life_span_handler_capi.h"
 #include "include/capi/cef_render_handler_capi.h"
 
 #define W 1280
@@ -136,7 +140,56 @@ static void init_base(cef_base_ref_counted_t* b, size_t size) {
 }
 
 static cef_render_handler_t g_render_handler;
+static cef_life_span_handler_t g_life_span_handler;
 static cef_client_t g_client;
+static cef_browser_t* g_browser;
+static char g_ctl_path[256];
+
+static void CEF_CALLBACK on_after_created(cef_life_span_handler_t* self, cef_browser_t* browser) {
+    browser->base.add_ref(&browser->base);
+    g_browser = browser;
+}
+
+// Poll the compositor's control socket and hand the raw state JSON to the
+// page: window.__pdState(<state>). The reply is already JSON, so the C side
+// never parses it.
+static void push_state(void) {
+    if (!g_browser || !g_ctl_path[0]) {
+        return;
+    }
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return;
+    }
+    struct sockaddr_un addr = {.sun_family = AF_UNIX};
+    strncpy(addr.sun_path, g_ctl_path, sizeof(addr.sun_path) - 1);
+    struct timeval tv = {.tv_sec = 1};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    static char reply[16384];
+    ssize_t n = -1;
+    if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+        const char* req = "{\"cmd\":\"get_state\"}\n";
+        if (write(fd, req, strlen(req)) > 0) {
+            n = read(fd, reply, sizeof(reply) - 1);
+        }
+    }
+    close(fd);
+    if (n <= 0) {
+        return;
+    }
+    reply[n] = 0;
+    static char code[17000];
+    snprintf(code, sizeof(code), "window.__pdState && window.__pdState(%s)", reply);
+    cef_frame_t* frame = g_browser->get_main_frame(g_browser);
+    if (frame) {
+        cef_string_t js = {0};
+        cef_string_utf8_to_utf16(code, strlen(code), &js);
+        cef_string_t origin = {0};
+        frame->execute_java_script(frame, &js, &origin, 0);
+        cef_string_clear(&js);
+        frame->base.release(&frame->base);
+    }
+}
 
 static void CEF_CALLBACK get_view_rect(cef_render_handler_t* self, cef_browser_t* browser,
                                        cef_rect_t* rect) {
@@ -192,6 +245,10 @@ static cef_render_handler_t* CEF_CALLBACK get_render_handler(cef_client_t* self)
     return &g_render_handler;
 }
 
+static cef_life_span_handler_t* CEF_CALLBACK get_life_span_handler(cef_client_t* self) {
+    return &g_life_span_handler;
+}
+
 int main(int argc, char** argv) {
     cef_api_hash(CEF_API_VERSION, 0);
 
@@ -224,8 +281,21 @@ int main(int argc, char** argv) {
     init_base(&g_render_handler.base, sizeof(g_render_handler));
     g_render_handler.get_view_rect = get_view_rect;
     g_render_handler.on_paint = on_paint;
+    init_base(&g_life_span_handler.base, sizeof(g_life_span_handler));
+    g_life_span_handler.on_after_created = on_after_created;
     init_base(&g_client.base, sizeof(g_client));
     g_client.get_render_handler = get_render_handler;
+    g_client.get_life_span_handler = get_life_span_handler;
+
+    // <prefix>-overlay -> <runtime dir>/<prefix>.ctl
+    const char* wl = getenv("WAYLAND_DISPLAY");
+    const char* rt = getenv("XDG_RUNTIME_DIR");
+    if (wl && rt) {
+        const char* suffix = strstr(wl, "-overlay");
+        if (suffix) {
+            snprintf(g_ctl_path, sizeof(g_ctl_path), "%s/%.*s.ctl", rt, (int)(suffix - wl), wl);
+        }
+    }
 
     cef_window_info_t wi;
     memset(&wi, 0, sizeof(wi));
@@ -257,6 +327,7 @@ int main(int argc, char** argv) {
     // External pump: interleave wayland dispatch with CEF work. Crude fixed
     // cadence is fine for an overlay (no interactive input yet).
     struct pollfd pfd = {.fd = wl_display_get_fd(dpy), .events = POLLIN};
+    int ticks = 0;
     while (running) {
         wl_display_dispatch_pending(dpy);
         wl_display_flush(dpy);
@@ -264,6 +335,10 @@ int main(int argc, char** argv) {
             wl_display_dispatch(dpy);
         }
         cef_do_message_loop_work();
+        if (++ticks >= 50) { // roughly 4-5 state pushes per second
+            ticks = 0;
+            push_state();
+        }
     }
     cef_shutdown();
     return 0;
