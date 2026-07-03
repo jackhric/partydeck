@@ -19,3 +19,11 @@ serde_json = "1"
 [[bin]]
 name = "partydeck-comp"
 required-features = ["compositor"]
+
+[dev-dependencies]
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client"] }
+
+[[example]]
+name = "overlay_test"
+required-features = []

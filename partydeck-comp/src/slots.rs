@@ -21,7 +21,34 @@ fn slot_of(surface: &ToplevelSurface) -> Option<usize> {
         .and_then(|c| c.get_data::<ClientState>().and_then(|d| d.slot))
 }
 
+fn is_overlay(surface: &ToplevelSurface) -> bool {
+    surface
+        .wl_surface()
+        .client()
+        .and_then(|c| c.get_data::<ClientState>().map(|d| d.is_overlay))
+        .unwrap_or(false)
+}
+
+pub fn raise_overlay(state: &mut CompState) {
+    if let Some(overlay) = state.overlay_window.clone() {
+        state.space.raise_element(&overlay, false);
+    }
+}
+
 pub fn map_toplevel(state: &mut CompState, surface: ToplevelSurface) {
+    if is_overlay(&surface) {
+        let size = state.backend.winit.window_size();
+        surface.with_pending_state(|s| {
+            s.states.set(xdg_toplevel::State::Fullscreen);
+            s.states.set(xdg_toplevel::State::Activated);
+            s.size = Some((size.w, size.h).into());
+        });
+        let window = Window::new_wayland_window(surface);
+        state.space.map_element(window.clone(), (0, 0), false);
+        state.space.raise_element(&window, false);
+        state.overlay_window = Some(window);
+        return;
+    }
     let slot = slot_of(&surface);
     let rects = slot_rects(state);
     let output_size = state.backend.winit.window_size();
@@ -45,6 +72,7 @@ pub fn map_toplevel(state: &mut CompState, surface: ToplevelSurface) {
     let window = Window::new_wayland_window(surface);
     state.space.map_element(window.clone(), origin, false);
 
+    raise_overlay(state);
     let focus_this = match slot {
         Some(i) => {
             if i < state.slot_windows.len() {
@@ -62,6 +90,17 @@ pub fn map_toplevel(state: &mut CompState, surface: ToplevelSurface) {
 
 pub fn handle_toplevel_destroyed(state: &mut CompState, surface: ToplevelSurface) {
     let wl = surface.wl_surface();
+    let overlay_matches = state
+        .overlay_window
+        .as_ref()
+        .and_then(|w| w.toplevel().map(|t| t.wl_surface() == wl))
+        .unwrap_or(false);
+    if overlay_matches {
+        if let Some(window) = state.overlay_window.take() {
+            state.space.unmap_elem(&window);
+        }
+        return;
+    }
     for entry in state.slot_windows.iter_mut() {
         let matches = entry
             .as_ref()
@@ -97,6 +136,15 @@ pub fn position_on_commit(state: &mut CompState, window: &Window) {
 }
 
 pub fn relayout(state: &mut CompState) {
+    if let Some(overlay) = &state.overlay_window {
+        if let Some(toplevel) = overlay.toplevel() {
+            let size = state.backend.winit.window_size();
+            toplevel.with_pending_state(|s| {
+                s.size = Some((size.w, size.h).into());
+            });
+            toplevel.send_pending_configure();
+        }
+    }
     let rects = slot_rects(state);
     for (i, entry) in state.slot_windows.iter().enumerate() {
         let (Some(window), Some(r)) = (entry, rects.get(i)) else {

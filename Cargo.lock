@@ -2926,6 +2926,8 @@ dependencies = [
  "serde",
  "serde_json",
  "smithay",
+ "wayland-client",
+ "wayland-protocols",
 ]
 
 [[package]]

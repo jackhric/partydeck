@@ -40,6 +40,7 @@ pub struct CompState {
     pub assets: crate::overlay::Assets,
     pub layout: Layout,
     pub slot_windows: Vec<Option<Window>>,
+    pub overlay_window: Option<Window>,
     pub slot_status: Vec<Option<(String, Option<String>)>>,
     pub clear_color: [f32; 4],
 
@@ -120,6 +121,7 @@ impl CompState {
             assets: crate::overlay::Assets::load(),
             layout,
             slot_windows,
+            overlay_window: None,
             slot_status,
             clear_color,
 
@@ -171,6 +173,25 @@ impl CompState {
                 .expect("failed to init the wayland event source");
         }
 
+        // HUD/menu renderers connect here; their toplevel composites above
+        // every slot (see slots::map_toplevel) and they opt out of input via
+        // an empty input region client-side.
+        let overlay_name = format!("{prefix}-overlay");
+        let overlay_socket = ListeningSocketSource::with_name(&overlay_name)
+            .unwrap_or_else(|e| panic!("failed to bind wayland socket {overlay_name}: {e}"));
+        names.push(overlay_socket.socket_name().to_os_string());
+        loop_handle
+            .insert_source(overlay_socket, move |client_stream, _, state| {
+                state
+                    .display_handle
+                    .insert_client(
+                        client_stream,
+                        Arc::new(ClientState { is_overlay: true, ..Default::default() }),
+                    )
+                    .unwrap();
+            })
+            .expect("failed to init the wayland event source");
+
         loop_handle
             .insert_source(
                 Generic::new(display, Interest::READ, Mode::Level),
@@ -199,6 +220,7 @@ impl CompState {
 #[derive(Default)]
 pub struct ClientState {
     pub slot: Option<usize>,
+    pub is_overlay: bool,
     pub compositor_state: CompositorClientState,
 }
 
