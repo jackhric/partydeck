@@ -67,8 +67,6 @@ const BUNDLE: &[(&str, &str)] = &[
     ("deps/releases/gbe-win/steamclient_experimental/GameOverlayRenderer64.dll", "res/goldberg/win/GameOverlayRenderer64.dll"),
     // umu
     ("deps/releases/umu/umu-run", "bin/umu-run"),
-    // resources
-    ("res/comp/loading.png", "res/comp/loading.png"),
 ];
 
 

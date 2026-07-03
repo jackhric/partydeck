@@ -37,7 +37,6 @@ pub struct CompState {
     pub display_handle: DisplayHandle,
 
     pub host_ready: bool,
-    pub assets: crate::overlay::Assets,
     pub layout: Layout,
     pub slot_windows: Vec<Option<Window>>,
     pub overlay_window: Option<Window>,
@@ -118,7 +117,6 @@ impl CompState {
             display_handle: dh,
 
             host_ready: true,
-            assets: crate::overlay::Assets::load(),
             layout,
             slot_windows,
             overlay_window: None,

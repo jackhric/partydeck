@@ -2,7 +2,6 @@ mod backend;
 mod control;
 mod focus;
 mod handlers;
-mod overlay;
 mod render;
 mod slots;
 mod state;

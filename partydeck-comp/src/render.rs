@@ -1,6 +1,8 @@
 use std::time::Duration;
 
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
+use smithay::backend::renderer::element::utils::{CropRenderElement, RescaleRenderElement};
+use smithay::backend::renderer::element::AsRenderElements;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::utils::{
     surface_presentation_feedback_flags_from_states, surface_primary_scanout_output,
@@ -8,10 +10,17 @@ use smithay::desktop::utils::{
 };
 use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
 use smithay::reexports::wayland_server::DisplayHandle;
+use smithay::render_elements;
 use smithay::utils::Rectangle;
 use smithay::wayland::presentation::Refresh;
 
 use crate::state::CompState;
+
+render_elements! {
+    pub CompElement<=GlesRenderer>;
+    Surface=WaylandSurfaceRenderElement<GlesRenderer>,
+    Scaled=CropRenderElement<RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>>,
+}
 
 // Presented feedback is acked promptly on commit so a child's present_wait
 // never stalls on our render cadence; frame callbacks stay redraw-driven so
@@ -66,7 +75,6 @@ pub fn redraw(state: &mut CompState, display_handle: &mut DisplayHandle) {
     let CompState {
         backend,
         space,
-        start_time,
         popups,
         clock,
         frame_seq,
@@ -74,37 +82,79 @@ pub fn redraw(state: &mut CompState, display_handle: &mut DisplayHandle) {
         layout,
         slot_windows,
         overlay_window,
-        assets,
         ..
     } = state;
 
     let size = backend.winit.window_size();
     let damage = Rectangle::from_size(size);
-    let overlay_elements = crate::overlay::build(
-        layout,
-        slot_windows,
-        overlay_window.is_some(),
-        assets,
-        *start_time,
-        size,
-        backend.winit.renderer(),
-    );
+    let mut elements: Vec<CompElement> = Vec::new();
+
+    // The overlay client renders 1:1 above everything.
+    if let Some(overlay) = overlay_window {
+        elements.extend(
+            overlay
+                .render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
+                    backend.winit.renderer(),
+                    (0, 0).into(),
+                    1.0.into(),
+                    1.0,
+                )
+                .into_iter()
+                .map(CompElement::Surface),
+        );
+    }
+
+    // Slot windows are contain-fitted: nested gamescope never honors resize
+    // configures, so whatever buffer size an instance was launched with gets
+    // scaled and cropped into its slot here.
+    let rects = layout.resolve(size.w.max(1) as u32, size.h.max(1) as u32);
+    for (i, entry) in slot_windows.iter().enumerate() {
+        let (Some(window), Some(r)) = (entry.as_ref(), rects.get(i)) else {
+            continue;
+        };
+        let geo = window.geometry().size;
+        if geo.w <= 0 || geo.h <= 0 {
+            continue;
+        }
+        let fit = (r.w as f64 / geo.w as f64).min(r.h as f64 / geo.h as f64);
+        let origin = smithay::utils::Point::<i32, smithay::utils::Physical>::from((
+            r.x + ((r.w as f64 - geo.w as f64 * fit) / 2.0) as i32,
+            r.y + ((r.h as f64 - geo.h as f64 * fit) / 2.0) as i32,
+        ));
+        let crop = Rectangle::new((r.x, r.y).into(), (r.w, r.h).into());
+        elements.extend(
+            window
+                .render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
+                    backend.winit.renderer(),
+                    origin,
+                    1.0.into(),
+                    1.0,
+                )
+                .into_iter()
+                .filter_map(|e| {
+                    CropRenderElement::from_element(
+                        RescaleRenderElement::from_element(e, origin, fit),
+                        1.0,
+                        crop,
+                    )
+                })
+                .map(CompElement::Scaled),
+        );
+    }
 
     let states = {
         let (renderer, mut framebuffer) = backend.winit.bind().unwrap();
-        smithay::desktop::space::render_output::<_, crate::overlay::OverlayElement, _, _>(
-            &backend.output,
-            renderer,
-            &mut framebuffer,
-            1.0,
-            0,
-            [&*space],
-            &overlay_elements,
-            &mut backend.damage_tracker,
-            *clear_color,
-        )
-        .unwrap()
-        .states
+        backend
+            .damage_tracker
+            .render_output::<CompElement, _>(
+                renderer,
+                &mut framebuffer,
+                0,
+                &elements,
+                *clear_color,
+            )
+            .unwrap()
+            .states
     };
     backend.winit.submit(Some(&[damage])).unwrap();
 
