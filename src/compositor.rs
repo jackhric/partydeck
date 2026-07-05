@@ -36,16 +36,22 @@ impl Compositor {
             return Err("partydeck-comp is missing. Please reinstall partydeck.".into());
         }
 
-        let mut child = Command::new(bin)
-            .arg("--socket-prefix")
+        // Under gamescope, fullscreen gets reconfigured to panel size, defeating an
+        // explicit resolution override; windowed lets gamescope scale the buffer.
+        let overridden = std::env::var_os("PARTYDECK_SCREEN_WIDTH").is_some()
+            && std::env::var_os("PARTYDECK_SCREEN_HEIGHT").is_some();
+
+        let mut cmd = Command::new(bin);
+        cmd.arg("--socket-prefix")
             .arg(&socket_prefix)
             .arg("--layout")
             .arg(&layout_path)
             .arg("--size")
-            .arg(format!("{width}x{height}"))
-            .arg("--fullscreen")
-            .stdout(Stdio::piped())
-            .spawn()?;
+            .arg(format!("{width}x{height}"));
+        if !overridden {
+            cmd.arg("--fullscreen");
+        }
+        let mut child = cmd.stdout(Stdio::piped()).spawn()?;
 
         let stdout = child.stdout.take().ok_or("no compositor stdout")?;
         let (tx, rx) = std::sync::mpsc::channel::<String>();
@@ -69,7 +75,10 @@ impl Compositor {
             }
         }
 
-        println!("[partydeck] compositor ready, sockets {socket_prefix}-p0..");
+        let mode = if overridden { "windowed" } else { "fullscreen" };
+        println!(
+            "[partydeck] compositor ready, sockets {socket_prefix}-p0.., size {width}x{height} {mode}"
+        );
         let overlay_child = spawn_cef_overlay(&socket_prefix);
         Ok(Self { child, overlay_child, socket_prefix, control_path })
     }
