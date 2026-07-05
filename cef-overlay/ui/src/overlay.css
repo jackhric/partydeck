@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+/* CEF paints onto a transparent wl_shm surface — the page must not add a
+   background of its own. Tailwind's preflight sets none, but the html/body
+   height + overflow lock still needs stating. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+@theme {
+  --animate-logo-in: logo-in 500ms ease-out;
+
+  @keyframes logo-in {
+    from {
+      opacity: 0;
+    }
+  }
+}

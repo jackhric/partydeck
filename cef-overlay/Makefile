@@ -14,13 +14,14 @@ BUILD_DIR := $(MAKEFILE_DIR)/build
 BIN       := $(BUILD_DIR)/cef-overlay
 OUT       ?= $(BUILD_DIR)/pkg
 XDG_XML   := /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml
+UI_HTML   := $(MAKEFILE_DIR)/ui/dist/overlay.html
 
 DECK_HOST ?= deck@steamdeck.internal
 DECK_PORT ?= 22
 DECK_DIR  := /home/deck/homebrew/data/PartyDeck/bin/cef-overlay
 HOLO_OUT  := dist/build_generated/holo/release/bin/cef-overlay
 
-.PHONY: shell cef-dist package deploy deploy-ui clean
+.PHONY: shell cef-dist package deploy ui deploy-ui clean
 
 shell: $(BIN)
 
@@ -63,7 +64,8 @@ package: shell
 	mkdir -p $(OUT)/locales
 	cp $(BIN) $(OUT)/cef-overlay
 	cp $(STRIPPED) $(OUT)/libcef.so
-	cp $(MAKEFILE_DIR)/ui/overlay.html $(OUT)/overlay.html
+	@test -f $(UI_HTML) || { echo 'ERROR: $(UI_HTML) missing — build it on the host first: make -C cef-overlay ui' >&2; exit 1; }
+	cp $(UI_HTML) $(OUT)/overlay.html
 	cp $(DIST_DIR)/Release/v8_context_snapshot.bin \
 	   $(DIST_DIR)/Resources/icudtl.dat \
 	   $(DIST_DIR)/Resources/resources.pak \
@@ -80,9 +82,15 @@ deploy:
 	rsync -a --delete -e 'ssh -p $(DECK_PORT)' \
 	    $(REPO_ROOT)/$(HOLO_OUT)/ $(DECK_HOST):$(DECK_DIR)/
 
-deploy-ui:
+# Host-only (the holo container has no node/pnpm); package does NOT depend on
+# this — build the UI before packaging.
+ui:
+	pnpm -C $(MAKEFILE_DIR)/ui install --frozen-lockfile
+	pnpm -C $(MAKEFILE_DIR)/ui build
+
+deploy-ui: ui
 	rsync -e 'ssh -p $(DECK_PORT)' \
-	    $(MAKEFILE_DIR)/ui/overlay.html $(DECK_HOST):$(DECK_DIR)/overlay.html
+	    $(UI_HTML) $(DECK_HOST):$(DECK_DIR)/overlay.html
 
 clean:
 	rm -rf $(BUILD_DIR)

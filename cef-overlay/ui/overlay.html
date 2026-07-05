@@ -1,80 +1,11 @@
 <!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
-               font-family: system-ui, "DejaVu Sans", sans-serif; }
-  #ring { position: absolute; border: 3px solid #4d8cf2; border-radius: 6px;
-          box-shadow: 0 0 18px rgba(77,140,242,.55), inset 0 0 12px rgba(77,140,242,.25);
-          transition: all .45s cubic-bezier(.3,1,.3,1); pointer-events: none; display: none; }
-  .card { position: absolute; display: flex; flex-direction: column; align-items: center;
-          justify-content: center; gap: 10px;
-          background: rgba(10,14,22,.92); transition: all .45s cubic-bezier(.3,1,.3,1); }
-  .card .mark { color: #ecf1f7; font-weight: 800; letter-spacing: .14em; font-size: 22px; }
-  .card .sub { color: #94a3b8; font-size: 13px; }
-  .spinner { width: 30px; height: 30px; border-radius: 50%;
-             border: 3px solid rgba(77,140,242,.25); border-top-color: #4d8cf2;
-             animation: spin 1s linear infinite; }
-  .chip { position: absolute; transform: translateY(-50%);
-          background: rgba(10,14,22,.75); border: 1px solid rgba(77,140,242,.45);
-          color: #cfe0fb; padding: 3px 12px; border-radius: 999px; font-size: 13px;
-          transition: all .45s cubic-bezier(.3,1,.3,1); }
-  .chip::before { content: "● "; color: #37d67a; }
-  .chip.waiting::before { color: #f0b429; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-</style>
-</head>
-<body>
-  <div id="ring"></div>
-  <div id="slots"></div>
-<script>
-  const ring = document.getElementById("ring");
-  const slots = document.getElementById("slots");
-  const nodes = [];
-
-  function slotNode(i) {
-    if (!nodes[i]) {
-      const card = document.createElement("div");
-      card.className = "card";
-      card.innerHTML = '<div class="mark">PARTYDECK</div><div class="spinner"></div>' +
-                       '<div class="sub">Starting instance…</div>';
-      const chip = document.createElement("div");
-      chip.className = "chip";
-      slots.append(card, chip);
-      nodes[i] = { card, chip };
-    }
-    return nodes[i];
-  }
-
-  window.__pdState = (s) => {
-    s.slots.forEach((slot, i) => {
-      const { card, chip } = slotNode(i);
-      const r = slot.rect;
-      Object.assign(card.style, {
-        left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px",
-        display: slot.live ? "none" : "flex",
-      });
-      chip.textContent = slot.label || `Player ${i + 1}`;
-      chip.className = "chip" + (slot.live ? "" : " waiting");
-      Object.assign(chip.style, { left: r.x + 14 + "px", top: r.y + 22 + "px" });
-    });
-    for (let i = s.slots.length; i < nodes.length; i++) {
-      nodes[i].card.style.display = "none";
-      nodes[i].chip.style.display = "none";
-    }
-    const f = s.slots[s.focus];
-    if (f && s.slots.length > 1) {
-      const r = f.rect;
-      Object.assign(ring.style, {
-        display: "block",
-        left: r.x + "px", top: r.y + "px",
-        width: r.w - 6 + "px", height: r.h - 6 + "px",
-      });
-    } else {
-      ring.style.display = "none";
-    }
-  };
-</script>
-</body>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PartyDeck Overlay</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
