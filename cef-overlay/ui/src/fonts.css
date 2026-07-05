@@ -1,0 +1,55 @@
+/* woff2-only faces (CEF/Chrome126 supports woff2 — skip @fontsource's woff
+   fallback so it isn't inlined into the single-file bundle). Latin subset:
+   player names are ASCII. */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  src: url("@fontsource/inter/files/inter-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  src: url("@fontsource/inter/files/inter-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 400;
+  src: url("@fontsource/manrope/files/manrope-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 500;
+  src: url("@fontsource/manrope/files/manrope-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Rubik";
+  font-style: normal;
+  font-weight: 400;
+  src: url("@fontsource/rubik/files/rubik-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Rubik";
+  font-style: normal;
+  font-weight: 500;
+  src: url("@fontsource/rubik/files/rubik-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Exo 2";
+  font-style: normal;
+  font-weight: 400;
+  src: url("@fontsource/exo-2/files/exo-2-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Exo 2";
+  font-style: normal;
+  font-weight: 500;
+  src: url("@fontsource/exo-2/files/exo-2-latin-500-normal.woff2") format("woff2");
+}

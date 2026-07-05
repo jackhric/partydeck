@@ -1,18 +1,24 @@
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use serde::Serialize;
 
 use crate::{handler::Handler, paths::*, util::copy_dir_recursive};
 
-// Makes a folder and sets up Goldberg Steam Emu profile for Steam games
-pub fn create_profile(name: &str) -> Result<(), std::io::Error> {
-    // Same traversal guard as delete_profile. Leading '.' is allowed here
-    // (guest profiles); the CLI rejects it separately.
-    if name.is_empty()
+fn valid_profile_name(name: &str) -> bool {
+    !(name.is_empty()
         || name == "Guest"
         || name.contains('/')
         || name.contains('\\')
-        || name.contains("..")
-    {
+        || name.contains(".."))
+}
+
+// Makes a folder and sets up Goldberg Steam Emu profile for Steam games
+pub fn create_profile(name: &str) -> Result<(), std::io::Error> {
+    // Leading '.' is allowed here (guest profiles); the CLI rejects it separately.
+    if !valid_profile_name(name) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             format!("invalid profile name: {name}"),
@@ -44,13 +50,7 @@ pub fn create_profile(name: &str) -> Result<(), std::io::Error> {
 }
 
 pub fn delete_profile(name: &str) -> Result<(), Box<dyn Error>> {
-    // Guard against path traversal and the reserved guest name.
-    if name.is_empty()
-        || name == "Guest"
-        || name.contains('/')
-        || name.contains('\\')
-        || name.contains("..")
-    {
+    if !valid_profile_name(name) {
         return Err(format!("invalid profile name: {name}").into());
     }
     let path = PATH_PARTY.join("profiles").join(name);
@@ -145,6 +145,94 @@ pub fn remove_guest_profiles() -> Result<(), Box<dyn Error>> {
             std::fs::remove_dir_all(entry.path())?;
         }
     }
+    Ok(())
+}
+
+pub fn avatar_path(name: &str) -> PathBuf {
+    PATH_PARTY.join(format!("profiles/{name}/avatar.png"))
+}
+
+pub fn read_avatar_base64(name: &str) -> Option<String> {
+    if !valid_profile_name(name) {
+        return None;
+    }
+    let bytes = std::fs::read(avatar_path(name)).ok()?;
+    Some(STANDARD.encode(bytes))
+}
+
+pub fn set_avatar_custom(name: &str, src: &Path) -> Result<(), Box<dyn Error>> {
+    if !valid_profile_name(name) {
+        return Err(format!("invalid profile name: {name}").into());
+    }
+    if src.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("png")) != Some(true) {
+        return Err("avatar must be a .png file".into());
+    }
+    let dest = avatar_path(name);
+    if let Some(dir) = dest.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::copy(src, &dest)?;
+    Ok(())
+}
+
+pub fn clear_avatar(name: &str) -> Result<(), Box<dyn Error>> {
+    if !valid_profile_name(name) {
+        return Err(format!("invalid profile name: {name}").into());
+    }
+    let path = avatar_path(name);
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+pub fn builtin_avatars_dir() -> PathBuf {
+    PATH_RES.join("avatars")
+}
+
+#[derive(Serialize)]
+pub struct BuiltinAvatar {
+    pub id: String,
+    pub b64: String,
+}
+
+pub fn list_builtin_avatars() -> Vec<BuiltinAvatar> {
+    let mut out: Vec<BuiltinAvatar> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(builtin_avatars_dir()) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("png") {
+                continue;
+            }
+            let Some(id) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            out.push(BuiltinAvatar { id: id.to_string(), b64: STANDARD.encode(bytes) });
+        }
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out
+}
+
+pub fn set_avatar_builtin(name: &str, id: &str) -> Result<(), Box<dyn Error>> {
+    if !valid_profile_name(name) {
+        return Err(format!("invalid profile name: {name}").into());
+    }
+    if id.contains('/') || id.contains('\\') || id.contains("..") {
+        return Err(format!("invalid avatar id: {id}").into());
+    }
+    let src = builtin_avatars_dir().join(format!("{id}.png"));
+    if !src.is_file() {
+        return Err(format!("built-in avatar not found: {id}").into());
+    }
+    let dest = avatar_path(name);
+    if let Some(dir) = dest.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::copy(&src, &dest)?;
     Ok(())
 }
 

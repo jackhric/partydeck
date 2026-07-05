@@ -31,6 +31,9 @@ done
 cp    "$CARGO_TARGET_DIR/release/partydeck-comp" "$RELEASE_DIR/bin/partydeck-comp"
 make -C cef-overlay package OUT="$PWD/$RELEASE_DIR/bin/cef-overlay"
 cp -r "$CARGO_TARGET_DIR/release/res"        "$RELEASE_DIR/res"
+# target/release/res holds only build-generated assets (goldberg); merge in the
+# static source assets (avatars, glyphs) the binary loads from res/ at runtime.
+cp -r res/. "$RELEASE_DIR/res/"
 cp res/GamingModeLauncher.sh "$RELEASE_DIR/GamingModeLauncher.sh"
 cp LICENSE                   "$RELEASE_DIR/LICENSE"
 cp COPYING.md                "$RELEASE_DIR/thirdparty.txt"

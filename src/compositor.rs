@@ -20,6 +20,7 @@ impl Compositor {
         layout: &Layout,
         width: u32,
         height: u32,
+        border_style: &str,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR").map_err(|_| "XDG_RUNTIME_DIR not set")?;
         sweep_stale_sockets(&runtime_dir);
@@ -47,7 +48,9 @@ impl Compositor {
             .arg("--layout")
             .arg(&layout_path)
             .arg("--size")
-            .arg(format!("{width}x{height}"));
+            .arg(format!("{width}x{height}"))
+            .arg("--border")
+            .arg(border_style);
         if !overridden {
             cmd.arg("--fullscreen");
         }

@@ -10,12 +10,26 @@ export interface PdSlot {
   live: boolean;
   status: string | null;
   label: string | null;
+  avatar: string | null;
 }
 
 export interface PdState {
   size: { w: number; h: number };
   focus: number;
+  border?: string; // split-line style: "off" | "faint" | "medium" | "strong"
   slots: PdSlot[];
+}
+
+// Split-line style name -> CSS color. Unknown/missing falls back to faint.
+export const BORDER_COLORS: Record<string, string> = {
+  off: "transparent",
+  faint: "rgba(255,255,255,0.1)",
+  medium: "rgba(255,255,255,0.25)",
+  strong: "rgba(255,255,255,0.5)",
+};
+
+export function borderColor(style: string | undefined): string {
+  return BORDER_COLORS[style ?? "faint"] ?? BORDER_COLORS.faint;
 }
 
 declare global {

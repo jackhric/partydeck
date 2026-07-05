@@ -11,7 +11,10 @@ use crate::instance::Instance;
 use crate::launch::run_launch;
 use crate::monitor::get_monitors_errorless;
 use crate::paths::PATH_PARTY;
-use crate::profiles::{create_profile, delete_profile, scan_profiles};
+use crate::profiles::{
+    clear_avatar, create_profile, delete_profile, list_builtin_avatars, read_avatar_base64,
+    scan_profiles, set_avatar_builtin, set_avatar_custom,
+};
 
 #[derive(Parser)]
 #[command(name = "partydeck", disable_help_subcommand = true)]
@@ -99,6 +102,10 @@ pub enum ProfileAction {
     List,
     Create { name: String },
     Delete { name: String },
+    SetAvatar { name: String, path: String },
+    SetAvatarBuiltin { name: String, id: String },
+    ClearAvatar { name: String },
+    ListBuiltinAvatars,
 }
 
 #[derive(Subcommand)]
@@ -119,6 +126,8 @@ pub enum ConfigAction {
 #[derive(Serialize)]
 struct ProfileDto {
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    avatar: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -158,7 +167,7 @@ pub fn run(command: Command) -> i32 {
             ProfileAction::List => {
                 let profiles: Vec<ProfileDto> = scan_profiles(false)
                     .into_iter()
-                    .map(|name| ProfileDto { name })
+                    .map(|name| ProfileDto { avatar: read_avatar_base64(&name), name })
                     .collect();
                 print_json(&profiles)
             }
@@ -185,6 +194,30 @@ pub fn run(command: Command) -> i32 {
                     1
                 }
             },
+            ProfileAction::SetAvatar { name, path } => {
+                match set_avatar_custom(&name, std::path::Path::new(&path)) {
+                    Ok(()) => 0,
+                    Err(e) => {
+                        eprintln!("[partydeck] failed to set avatar for {name}: {e}");
+                        1
+                    }
+                }
+            }
+            ProfileAction::SetAvatarBuiltin { name, id } => match set_avatar_builtin(&name, &id) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("[partydeck] failed to set avatar for {name}: {e}");
+                    1
+                }
+            },
+            ProfileAction::ClearAvatar { name } => match clear_avatar(&name) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("[partydeck] failed to clear avatar for {name}: {e}");
+                    1
+                }
+            },
+            ProfileAction::ListBuiltinAvatars => print_json(&list_builtin_avatars()),
         },
         Command::Handler { action } => match action {
             HandlerAction::List => {

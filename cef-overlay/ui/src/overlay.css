@@ -9,13 +9,3 @@ body {
   overflow: hidden;
   background: transparent;
 }
-
-@theme {
-  --animate-logo-in: logo-in 500ms ease-out;
-
-  @keyframes logo-in {
-    from {
-      opacity: 0;
-    }
-  }
-}

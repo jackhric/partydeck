@@ -8,7 +8,7 @@ use smithay::wayland::socket::ListeningSocketSource;
 
 use partydeck_comp_proto::ipc::{Command, Response};
 
-use crate::state::CompState;
+use crate::state::{CompState, SlotStatus};
 use crate::{slots, CalloopData};
 
 pub fn init(
@@ -63,23 +63,23 @@ fn state_json(state: &CompState) -> String {
         .enumerate()
         .map(|(i, r)| {
             let live = state.slot_windows.get(i).map(|w| w.is_some()).unwrap_or(false);
-            let (status, label) = state
-                .slot_status
-                .get(i)
-                .and_then(|s| s.clone())
-                .map(|(s, l)| (Some(s), l))
-                .unwrap_or((None, None));
+            let entry = state.slot_status.get(i).and_then(|s| s.as_ref());
+            let status = entry.map(|s| s.status.clone());
+            let label = entry.and_then(|s| s.label.clone());
+            let avatar = entry.and_then(|s| s.avatar.clone());
             serde_json::json!({
                 "rect": {"x": r.x, "y": r.y, "w": r.w, "h": r.h},
                 "live": live,
                 "status": status,
                 "label": label,
+                "avatar": avatar,
             })
         })
         .collect();
     serde_json::json!({
         "size": {"w": size.w, "h": size.h},
         "focus": state.layout.focus,
+        "border": state.border_style,
         "slots": slots,
     })
     .to_string()
@@ -103,11 +103,11 @@ fn apply(state: &mut CompState, cmd: Command) -> Response {
             slots::relayout(state);
             set_focus(state, state.layout.focus)
         }
-        Command::SetSlotStatus { slot, status, label } => {
+        Command::SetSlotStatus { slot, status, label, avatar } => {
             if slot >= state.slot_status.len() {
                 return Response::Err(format!("slot {slot} out of range"));
             }
-            state.slot_status[slot] = Some((status, label));
+            state.slot_status[slot] = Some(SlotStatus { status, label, avatar });
             Response::Ok
         }
     }

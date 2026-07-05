@@ -18,6 +18,8 @@ pub enum Command {
         status: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        avatar: Option<String>,
     },
     Ping,
     Quit,
@@ -106,7 +108,7 @@ mod tests {
         assert_eq!(serde_json::to_string(&Command::Ping).unwrap(), r#"{"cmd":"ping"}"#);
         assert_eq!(
             decode_command(r#"{"cmd":"set_slot_status","slot":1,"status":"loading"}"#).unwrap(),
-            Command::SetSlotStatus { slot: 1, status: "loading".into(), label: None }
+            Command::SetSlotStatus { slot: 1, status: "loading".into(), label: None, avatar: None }
         );
     }
 
@@ -115,7 +117,7 @@ mod tests {
         let cmds = vec![
             Command::SetLayout { layout: presets::quadrants(4) },
             Command::SetFocus { slot: 1 },
-            Command::SetSlotStatus { slot: 0, status: "loading".into(), label: Some("player 1".into()) },
+            Command::SetSlotStatus { slot: 0, status: "loading".into(), label: Some("player 1".into()), avatar: Some("iVBORw0KGgo=".into()) },
             Command::Ping,
             Command::Quit,
         ];

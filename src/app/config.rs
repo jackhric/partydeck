@@ -18,6 +18,10 @@ fn default_layout_preset() -> String {
     "auto".to_string()
 }
 
+fn default_border_style() -> String {
+    "faint".to_string()
+}
+
 fn default_true() -> bool {
     true
 }
@@ -28,6 +32,9 @@ pub struct PartyConfig {
     pub gamescope_fix_lowres: bool,
     #[serde(default = "default_layout_preset")]
     pub layout_preset: String,
+    /// Split-line style between screens: "off" | "faint" | "medium" | "strong".
+    #[serde(default = "default_border_style")]
+    pub border_style: String,
     #[serde(default)]
     pub gamescope_force_grab_cursor: bool,
     #[serde(default = "default_true")]
@@ -57,6 +64,7 @@ impl Default for PartyConfig {
         PartyConfig {
             gamescope_fix_lowres: true,
             layout_preset: "auto".to_string(),
+            border_style: "faint".to_string(),
             gamescope_force_grab_cursor: false,
             kbm_support: true,
             proton_version: "".to_string(),

@@ -25,6 +25,13 @@ use partydeck_comp_proto::layout::Layout;
 use crate::backend::Backend;
 use crate::CalloopData;
 
+#[derive(Clone)]
+pub struct SlotStatus {
+    pub status: String,
+    pub label: Option<String>,
+    pub avatar: Option<String>,
+}
+
 pub struct CompState {
     pub start_time: std::time::Instant,
     pub frames: u32,
@@ -38,9 +45,11 @@ pub struct CompState {
 
     pub host_ready: bool,
     pub layout: Layout,
+    /// Split-line style passed to the overlay: "off" | "faint" | "medium" | "strong".
+    pub border_style: String,
     pub slot_windows: Vec<Option<Window>>,
     pub overlay_window: Option<Window>,
-    pub slot_status: Vec<Option<(String, Option<String>)>>,
+    pub slot_status: Vec<Option<SlotStatus>>,
     pub clear_color: [f32; 4],
 
     pub space: Space<Window>,
@@ -68,6 +77,7 @@ impl CompState {
         display: Display<Self>,
         socket_prefix: &str,
         layout: Layout,
+        border_style: String,
         mut backend: Backend,
     ) -> Self {
         let start_time = std::time::Instant::now();
@@ -118,6 +128,7 @@ impl CompState {
 
             host_ready: true,
             layout,
+            border_style,
             slot_windows,
             overlay_window: None,
             slot_status,

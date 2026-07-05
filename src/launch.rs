@@ -8,7 +8,7 @@ use crate::input::*;
 use crate::instance::*;
 use crate::paths::*;
 use crate::monitor::Monitor;
-use crate::profiles::{create_profile, create_profile_gamesave, remove_guest_profiles};
+use crate::profiles::{create_profile, create_profile_gamesave, read_avatar_base64, remove_guest_profiles};
 use crate::session::Session;
 use crate::util::*;
 
@@ -51,9 +51,22 @@ pub fn run_launch(
     }
     layout.validate(instances.len())?;
     set_instance_resolutions_from_layout(&mut instances, &monitors[0], layout, cfg);
-    let comp = Compositor::spawn(layout, monitors[0].width(), monitors[0].height())?;
+    let comp = Compositor::spawn(layout, monitors[0].width(), monitors[0].height(), &cfg.border_style)?;
 
     setup_profiles(handler, &instances)?;
+
+    for (i, instance) in instances.iter().enumerate() {
+        let display_name = instance.profname.strip_prefix('.').unwrap_or(&instance.profname);
+        let cmd = partydeck_comp_proto::ipc::Command::SetSlotStatus {
+            slot: i,
+            status: "loading".into(),
+            label: Some(display_name.to_string()),
+            avatar: read_avatar_base64(&instance.profname),
+        };
+        if let Err(e) = comp.send(&cmd) {
+            eprintln!("[partydeck] failed to set slot {i} status: {e}");
+        }
+    }
 
     let session = Session::create(cfg);
 

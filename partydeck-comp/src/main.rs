@@ -32,6 +32,9 @@ struct Args {
     fullscreen: bool,
     #[arg(long, default_value = "1280x800", value_parser = parse_size)]
     size: (u32, u32),
+    /// Overlay split-line style: "off" | "faint" | "medium" | "strong".
+    #[arg(long, default_value = "faint")]
+    border: String,
 }
 
 fn load_layout(args: &Args) -> Result<partydeck_comp_proto::layout::Layout, String> {
@@ -70,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let layout = load_layout(&args)?;
     let (backend, winit) = backend::winit::init(&display_handle, args.size, args.fullscreen)?;
-    let state = CompState::new(&mut event_loop, display, &args.socket_prefix, layout, backend);
+    let state = CompState::new(&mut event_loop, display, &args.socket_prefix, layout, args.border, backend);
     let mut data = CalloopData { state, display_handle };
 
     backend::winit::insert_source(&mut event_loop, winit)?;

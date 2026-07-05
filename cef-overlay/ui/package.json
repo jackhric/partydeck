@@ -8,6 +8,11 @@
     "build": "tsc -b && vite build"
   },
   "dependencies": {
+    "@fontsource/exo-2": "^5.2.8",
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/manrope": "^5.2.8",
+    "@fontsource/rubik": "^5.2.8",
+    "motion": "^12.42.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

@@ -2895,6 +2895,7 @@ dependencies = [
 name = "partydeck"
 version = "0.8.5"
 dependencies = [
+ "base64",
  "bzip2",
  "clap",
  "dialog",
