@@ -10,16 +10,27 @@ compositor's ctl socket and handed to the page as raw JSON via
 ## Layout
 
 - `src/` — the C shell (`main.c`). Wayland plumbing + CEF glue; rarely changes.
-- `ui/` — `overlay.html`, the actual overlay page. Iterate freely.
+- `ui/` — Vite + React + TypeScript app for the overlay page. Builds to a
+  single self-contained `ui/dist/overlay.html` (everything inlined — no
+  fetches from `file://`). Iterate freely.
 - `build/` — generated protocol sources, binary, default package output.
 
 ## Dev loop
 
 | Change              | Command                     | What it does |
 |---------------------|-----------------------------|--------------|
-| `ui/overlay.html`   | `make deploy-ui`            | rsync the HTML straight to the Deck; instant |
+| `ui/src/*`          | `make deploy-ui`            | pnpm-build the UI, rsync the HTML to the Deck |
 | `src/main.c`        | `make deploy`               | package inside the holo image, rsync the bundle |
 | anything else       | `buildbinary` vscode task   | full release skeleton sync |
+
+For UI work off-Deck: `pnpm -C ui dev`, then open
+`http://localhost:5173/overlay.html?mock=1` (or `?mock=4` for four slots) —
+the mock harness drives `window.__pdState` with a scripted loading timeline.
+
+`make ui` (pnpm install + build) produces `ui/dist/overlay.html`. It is
+host-only — the holo container has no node — so **build the UI on the host
+before docker packaging**; `package` fails loudly if `ui/dist/overlay.html`
+is missing. `sync-partydeck-binary.sh` does this automatically.
 
 `make shell` builds the binary locally; `make package [OUT=dir]` assembles the
 runtime bundle. Both need the pinned CEF dist, which `cef-dist` downloads,
@@ -42,4 +53,6 @@ binary; override with `PARTYDECK_CEF_OVERLAY`) after the compositor reports
 ready, with `WAYLAND_DISPLAY=<prefix>-overlay`, `OVERLAY_URL` (defaults to the
 bundled `overlay.html`), and `--ozone-platform=headless --disable-gpu
 --no-sandbox`. The overlay is optional: no binary means the session runs bare.
-The shell exits on its own when the compositor socket goes away.
+The shell tracks compositor-assigned sizes at runtime (including per-app
+resolution changes in Gaming Mode), reallocating its buffers and re-rastering
+CEF on each resize. It exits on its own when the compositor socket goes away.

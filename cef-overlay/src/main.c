@@ -22,10 +22,8 @@
 #include "include/capi/cef_life_span_handler_capi.h"
 #include "include/capi/cef_render_handler_capi.h"
 
-#define W 1280
-#define H 800
-#define STRIDE (W * 4)
-#define BUFSZ (STRIDE * H)
+#define FALLBACK_W 1280
+#define FALLBACK_H 800
 
 // ── wayland state ────────────────────────────────────────────────────
 static struct wl_display* dpy;
@@ -39,8 +37,16 @@ static struct wl_buffer* buffers[2];
 static void* pixels[2];
 static int buffer_busy[2];
 static int buffer_stale[2];
+static int cur_w = FALLBACK_W;
+static int cur_h = FALLBACK_H;
+static int pending_w;
+static int pending_h;
+static void* shm_map;
+static size_t shm_map_size;
 static int configured;
 static int running = 1;
+
+static cef_browser_t* g_browser;
 
 static void registry_global(void* d, struct wl_registry* reg, uint32_t name,
                             const char* iface, uint32_t ver) {
@@ -60,21 +66,85 @@ static void wm_ping(void* d, struct xdg_wm_base* b, uint32_t serial) {
 }
 static const struct xdg_wm_base_listener wm_listener = {wm_ping};
 
-static void xdg_configure(void* d, struct xdg_surface* s, uint32_t serial) {
-    xdg_surface_ack_configure(s, serial);
-    configured = 1;
-}
-static const struct xdg_surface_listener xsurface_listener = {xdg_configure};
-
-static void toplevel_configure(void* d, struct xdg_toplevel* t, int32_t w, int32_t h,
-                               struct wl_array* states) {}
-static void toplevel_close(void* d, struct xdg_toplevel* t) { running = 0; }
-static const struct xdg_toplevel_listener toplevel_listener = {toplevel_configure, toplevel_close};
-
 static void buffer_release(void* data, struct wl_buffer* b) {
     buffer_busy[(intptr_t)data] = 0;
 }
 static const struct wl_buffer_listener buffer_listener_0 = {buffer_release};
+
+static int create_buffers(void) {
+    int stride = cur_w * 4;
+    size_t bufsz = (size_t)stride * cur_h;
+    int fd = memfd_create("overlay-shm", 0);
+    if (fd < 0 || ftruncate(fd, bufsz * 2) < 0) {
+        fprintf(stderr, "cef-overlay: shm alloc failed\n");
+        return 0;
+    }
+    void* map = mmap(NULL, bufsz * 2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (map == MAP_FAILED) {
+        close(fd);
+        return 0;
+    }
+    struct wl_shm_pool* pool = wl_shm_create_pool(shm, fd, bufsz * 2);
+    for (int i = 0; i < 2; i++) {
+        pixels[i] = (char*)map + i * bufsz;
+        buffers[i] = wl_shm_pool_create_buffer(pool, i * bufsz, cur_w, cur_h, stride,
+                                               WL_SHM_FORMAT_ARGB8888);
+        wl_buffer_add_listener(buffers[i], &buffer_listener_0, (void*)(intptr_t)i);
+        buffer_busy[i] = 0;
+        // Force a full-frame copy on first use; dirty rects from CEF assume
+        // the buffer already holds the previous frame.
+        buffer_stale[i] = 1;
+    }
+    wl_shm_pool_destroy(pool);
+    close(fd);
+    shm_map = map;
+    shm_map_size = bufsz * 2;
+    return 1;
+}
+
+static void destroy_buffers(void) {
+    for (int i = 0; i < 2; i++) {
+        wl_buffer_destroy(buffers[i]);
+        buffers[i] = NULL;
+    }
+    munmap(shm_map, shm_map_size);
+    shm_map = NULL;
+}
+
+static void xdg_configure(void* d, struct xdg_surface* s, uint32_t serial) {
+    xdg_surface_ack_configure(s, serial);
+    configured = 1;
+    if (!pending_w || !pending_h || (pending_w == cur_w && pending_h == cur_h)) {
+        return;
+    }
+    cur_w = pending_w;
+    cur_h = pending_h;
+    fprintf(stderr, "cef-overlay: size %dx%d\n", cur_w, cur_h);
+    if (!shm_map) {
+        return; // pre-map: wayland_init creates the buffers at cur_w/cur_h
+    }
+    destroy_buffers();
+    if (!create_buffers()) {
+        running = 0;
+        return;
+    }
+    if (g_browser) {
+        cef_browser_host_t* host = g_browser->get_host(g_browser);
+        host->was_resized(host);
+        host->base.release(&host->base);
+    }
+}
+static const struct xdg_surface_listener xsurface_listener = {xdg_configure};
+
+static void toplevel_configure(void* d, struct xdg_toplevel* t, int32_t w, int32_t h,
+                               struct wl_array* states) {
+    if (w > 0 && h > 0) {
+        pending_w = w;
+        pending_h = h;
+    }
+}
+static void toplevel_close(void* d, struct xdg_toplevel* t) { running = 0; }
+static const struct xdg_toplevel_listener toplevel_listener = {toplevel_configure, toplevel_close};
 
 static int wayland_init(void) {
     dpy = wl_display_connect(NULL);
@@ -108,23 +178,7 @@ static int wayland_init(void) {
         wl_display_dispatch(dpy);
     }
 
-    int fd = memfd_create("overlay-shm", 0);
-    if (fd < 0 || ftruncate(fd, BUFSZ * 2) < 0) {
-        fprintf(stderr, "cef-overlay: shm alloc failed\n");
-        return 0;
-    }
-    void* map = mmap(NULL, BUFSZ * 2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (map == MAP_FAILED) {
-        return 0;
-    }
-    struct wl_shm_pool* pool = wl_shm_create_pool(shm, fd, BUFSZ * 2);
-    for (int i = 0; i < 2; i++) {
-        pixels[i] = (char*)map + i * BUFSZ;
-        memset(pixels[i], 0, BUFSZ);
-        buffers[i] = wl_shm_pool_create_buffer(pool, i * BUFSZ, W, H, STRIDE, WL_SHM_FORMAT_ARGB8888);
-        wl_buffer_add_listener(buffers[i], &buffer_listener_0, (void*)(intptr_t)i);
-    }
-    return 1;
+    return create_buffers();
 }
 
 // ── CEF glue ─────────────────────────────────────────────────────────
@@ -143,7 +197,6 @@ static void init_base(cef_base_ref_counted_t* b, size_t size) {
 static cef_render_handler_t g_render_handler;
 static cef_life_span_handler_t g_life_span_handler;
 static cef_client_t g_client;
-static cef_browser_t* g_browser;
 static char g_ctl_path[256];
 
 static void CEF_CALLBACK on_after_created(cef_life_span_handler_t* self, cef_browser_t* browser) {
@@ -196,17 +249,20 @@ static void CEF_CALLBACK get_view_rect(cef_render_handler_t* self, cef_browser_t
                                        cef_rect_t* rect) {
     rect->x = 0;
     rect->y = 0;
-    rect->width = W;
-    rect->height = H;
+    rect->width = cur_w;
+    rect->height = cur_h;
 }
 
 static void CEF_CALLBACK on_paint(cef_render_handler_t* self, cef_browser_t* browser,
                                   cef_paint_element_type_t type, size_t n_rects,
                                   const cef_rect_t* rects, const void* buffer,
                                   int width, int height) {
-    if (type != PET_VIEW || width != W || height != H) {
+    // Stale-size paints can still arrive after was_resized; drop them and
+    // wait for the repaint at the current size.
+    if (type != PET_VIEW || width != cur_w || height != cur_h) {
         return;
     }
+    int stride = width * 4;
     int idx = !buffer_busy[0] ? 0 : (!buffer_busy[1] ? 1 : -1);
     if (idx < 0) {
         // Both busy: skip and make sure both resync from CEF's next full frame.
@@ -216,11 +272,11 @@ static void CEF_CALLBACK on_paint(cef_render_handler_t* self, cef_browser_t* bro
     // CEF hands us the full BGRA frame each paint, so a buffer that missed
     // frames while busy can always be healed with one full copy.
     if (buffer_stale[idx]) {
-        memcpy(pixels[idx], buffer, BUFSZ);
+        memcpy(pixels[idx], buffer, (size_t)stride * height);
         buffer_stale[idx] = 0;
         buffer_busy[idx] = 1;
         wl_surface_attach(surface, buffers[idx], 0, 0);
-        wl_surface_damage_buffer(surface, 0, 0, W, H);
+        wl_surface_damage_buffer(surface, 0, 0, width, height);
         wl_surface_commit(surface);
         wl_display_flush(dpy);
         buffer_stale[idx ^ 1] = 1;
@@ -229,8 +285,8 @@ static void CEF_CALLBACK on_paint(cef_render_handler_t* self, cef_browser_t* bro
     for (size_t i = 0; i < n_rects; i++) {
         const cef_rect_t* r = &rects[i];
         for (int y = r->y; y < r->y + r->height; y++) {
-            memcpy((char*)pixels[idx] + y * STRIDE + r->x * 4,
-                   (const char*)buffer + y * STRIDE + r->x * 4,
+            memcpy((char*)pixels[idx] + y * stride + r->x * 4,
+                   (const char*)buffer + y * stride + r->x * 4,
                    (size_t)r->width * 4);
         }
     }
