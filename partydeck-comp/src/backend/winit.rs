@@ -7,6 +7,7 @@ use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
 use smithay::reexports::calloop::EventLoop;
 use smithay::reexports::wayland_server::DisplayHandle;
 use smithay::reexports::winit::dpi::LogicalSize;
+use smithay::reexports::winit::platform::wayland::WindowAttributesExtWayland;
 use smithay::reexports::winit::window::{Fullscreen, Window as WinitWindow};
 use smithay::utils::Transform;
 use smithay::wayland::dmabuf::{DmabufFeedbackBuilder, DmabufState};
@@ -25,6 +26,12 @@ pub fn init(
         .with_title("partydeck-comp");
     if fullscreen {
         attrs = attrs.with_fullscreen(Some(Fullscreen::Borderless(None)));
+    }
+    if let Some(app_id) = steam_app_id() {
+        eprintln!("[comp] app_id {app_id}");
+        // Also covers X11/XWayland: WindowAttributesExtX11::with_name writes
+        // the same `name` field, which becomes WM_CLASS there.
+        attrs = attrs.with_name(&app_id, "");
     }
     let (mut backend, winit) = winit::init_from_attributes::<GlesRenderer>(attrs)?;
 
@@ -80,6 +87,31 @@ pub fn init(
     ))
 }
 
+// Non-Steam shortcuts report a 64-bit SteamGameId with the 32-bit shortcut
+// appid in the upper half; real Steam apps report the appid directly.
+fn appid_from_gameid(gameid: u64) -> u32 {
+    if gameid > u32::MAX as u64 {
+        (gameid >> 32) as u32
+    } else {
+        gameid as u32
+    }
+}
+
+fn steam_app_id() -> Option<String> {
+    let appid = std::env::var("SteamAppId")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .filter(|&id| id != 0)
+        .or_else(|| {
+            std::env::var("SteamGameId")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(appid_from_gameid)
+                .filter(|&id| id != 0)
+        })?;
+    Some(format!("steam_app_{appid}"))
+}
+
 pub fn insert_source(
     event_loop: &mut EventLoop<CalloopData>,
     winit: WinitEventLoop,
@@ -96,4 +128,15 @@ pub fn insert_source(
         };
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::appid_from_gameid;
+
+    #[test]
+    fn gameid_to_appid() {
+        assert_eq!(appid_from_gameid((2488242132u64 << 32) | (1 << 25)), 2488242132);
+        assert_eq!(appid_from_gameid(620), 620);
+    }
 }
