@@ -118,8 +118,8 @@ fn spawn_cef_overlay(socket_prefix: &str) -> Option<Child> {
         .env("OVERLAY_URL", url)
         .args(["--ozone-platform=headless", "--disable-gpu", "--no-sandbox"])
         .current_dir(&shell_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
         .spawn()
     {
         Ok(child) => {

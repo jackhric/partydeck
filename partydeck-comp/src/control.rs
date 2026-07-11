@@ -32,16 +32,25 @@ fn handle_connection(mut stream: &UnixStream, state: &mut CompState) {
     stream
         .set_read_timeout(Some(std::time::Duration::from_millis(300)))
         .ok();
+    const MAX_CMD: usize = 4 * 1024 * 1024;
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
-    while !buf.contains(&b'\n') && buf.len() < 64 * 1024 {
+    let mut newline = None;
+    let mut scanned = 0;
+    while newline.is_none() && buf.len() < MAX_CMD {
         match stream.read(&mut chunk) {
             Ok(0) => break,
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                if let Some(rel) = buf[scanned..].iter().position(|&b| b == b'\n') {
+                    newline = Some(scanned + rel);
+                }
+                scanned = buf.len();
+            }
             Err(_) => break,
         }
     }
-    let Some(pos) = buf.iter().position(|&b| b == b'\n') else {
+    let Some(pos) = newline else {
         return;
     };
     let line = match std::str::from_utf8(&buf[..pos])

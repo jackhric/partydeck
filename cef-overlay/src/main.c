@@ -3,7 +3,9 @@
 // cannot provide; we own the wl_surface so input region and buffer
 // lifecycle stay under PartyDeck's control.
 #define _GNU_SOURCE
+#include <errno.h>
 #include <poll.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -199,6 +201,20 @@ static cef_life_span_handler_t g_life_span_handler;
 static cef_client_t g_client;
 static char g_ctl_path[256];
 
+static int g_debug;
+
+static void dbg(const char* fmt, ...) {
+    if (!g_debug) {
+        return;
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    fputs("cef-overlay: dbg: ", stderr);
+    vfprintf(stderr, fmt, ap);
+    fputc('\n', stderr);
+    va_end(ap);
+}
+
 static void CEF_CALLBACK on_after_created(cef_life_span_handler_t* self, cef_browser_t* browser) {
     browser->base.add_ref(&browser->base);
     g_browser = browser;
@@ -219,30 +235,118 @@ static void push_state(void) {
     strncpy(addr.sun_path, g_ctl_path, sizeof(addr.sun_path) - 1);
     struct timeval tv = {.tv_sec = 1};
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    static char reply[16384];
-    ssize_t n = -1;
-    if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
-        const char* req = "{\"cmd\":\"get_state\"}\n";
-        if (write(fd, req, strlen(req)) > 0) {
-            n = read(fd, reply, sizeof(reply) - 1);
+    if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
+        dbg("push_state: connect failed: %s", strerror(errno));
+        close(fd);
+        return;
+    }
+    const char* req = "{\"cmd\":\"get_state\"}\n";
+    if (write(fd, req, strlen(req)) <= 0) {
+        dbg("push_state: write req failed: %s", strerror(errno));
+        close(fd);
+        return;
+    }
+
+    size_t cap = 65536;
+    size_t len = 0;
+    char* reply = malloc(cap);
+    if (!reply) {
+        dbg("push_state: alloc failed: %s", strerror(errno));
+        close(fd);
+        return;
+    }
+    const size_t max_reply = 4 * 1024 * 1024;
+    int done = 0;
+    int terminated_by_newline = 0;
+    while (!done) {
+        if (len + 1 >= cap) {
+            size_t ncap = cap * 2;
+            char* grown;
+            if (ncap > max_reply + 1) {
+                dbg("push_state: reply exceeded max, bailing");
+                free(reply);
+                close(fd);
+                return;
+            }
+            grown = realloc(reply, ncap);
+            if (!grown) {
+                dbg("push_state: alloc failed: %s", strerror(errno));
+                free(reply);
+                close(fd);
+                return;
+            }
+            reply = grown;
+            cap = ncap;
+        }
+        ssize_t n = read(fd, reply + len, cap - len - 1);
+        if (n <= 0) {
+            if (len == 0) {
+                dbg("push_state: read returned no data: %s", strerror(errno));
+                free(reply);
+                close(fd);
+                return;
+            }
+            break;
+        }
+        len += (size_t)n;
+        if (memchr(reply + len - (size_t)n, '\n', (size_t)n)) {
+            terminated_by_newline = 1;
+            done = 1;
         }
     }
     close(fd);
-    if (n <= 0) {
+    reply[len] = 0;
+
+    static unsigned g_tick;
+    int sample = (g_tick++ % 40) == 0;
+    if (sample) {
+        size_t tail_n = len < 80 ? len : 80;
+        dbg("push_state: got %zu bytes, term=%s, head=<%.80s>, tail=<%.*s>",
+            len, terminated_by_newline ? "nl" : "eof", reply,
+            (int)tail_n, reply + len - tail_n);
+    }
+
+    static char* g_last_reply;
+    static size_t g_last_reply_len;
+    if (g_last_reply && g_last_reply_len == len && memcmp(g_last_reply, reply, len) == 0) {
+        if (sample) {
+            dbg("push_state: state unchanged, skip inject");
+        }
+        free(reply);
         return;
     }
-    reply[n] = 0;
-    static char code[17000];
-    snprintf(code, sizeof(code), "window.__pdState && window.__pdState(%s)", reply);
+
+    const char* prefix = "window.__pdState && window.__pdState(";
+    const char* suffix = ")";
+    size_t code_len = strlen(prefix) + len + strlen(suffix);
+    char* code = malloc(code_len + 1);
+    if (!code) {
+        free(reply);
+        return;
+    }
+    memcpy(code, prefix, strlen(prefix));
+    memcpy(code + strlen(prefix), reply, len);
+    memcpy(code + strlen(prefix) + len, suffix, strlen(suffix) + 1);
+
+    // reply is fully consumed into code; hand it to the dedup cache.
+    free(g_last_reply);
+    g_last_reply = reply;
+    g_last_reply_len = len;
+
+    if (sample) {
+        dbg("push_state: injecting %zu byte payload", code_len);
+    }
+
     cef_frame_t* frame = g_browser->get_main_frame(g_browser);
     if (frame) {
         cef_string_t js = {0};
-        cef_string_utf8_to_utf16(code, strlen(code), &js);
+        cef_string_utf8_to_utf16(code, code_len, &js);
         cef_string_t origin = {0};
         frame->execute_java_script(frame, &js, &origin, 0);
         cef_string_clear(&js);
         frame->base.release(&frame->base);
     }
+    free(code);
 }
 
 static void CEF_CALLBACK get_view_rect(cef_render_handler_t* self, cef_browser_t* browser,
@@ -310,6 +414,7 @@ static cef_life_span_handler_t* CEF_CALLBACK get_life_span_handler(cef_client_t*
 }
 
 int main(int argc, char** argv) {
+    g_debug = getenv("PARTYDECK_OVERLAY_DEBUG") != NULL;
     cef_api_hash(CEF_API_VERSION, 0);
 
     cef_main_args_t main_args = {argc, argv};

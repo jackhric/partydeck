@@ -41,10 +41,14 @@ declare global {
 }
 
 let current: PdState = { size: { w: 0, h: 0 }, focus: 0, slots: [] };
+let lastJson: string | undefined;
 const listeners = new Set<() => void>();
 
 window.__pdState = (state) => {
+  const json = JSON.stringify(state);
+  if (json === lastJson) return;
   current = state;
+  lastJson = json;
   for (const fn of listeners) fn();
 };
 
