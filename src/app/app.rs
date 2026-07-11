@@ -309,6 +309,7 @@ impl PartyApp {
                         None => {
                             self.instances.push(Instance {
                                 devices: vec![i],
+                                pad_slot: None,
                                 profname: String::new(),
                                 profselection: 0,
                                 monitor: 0,

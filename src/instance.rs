@@ -5,6 +5,8 @@ use crate::profiles::GUEST_NAMES;
 #[derive(Clone)]
 pub struct Instance {
     pub devices: Vec<usize>,
+    // Explicit XInput slot for this player's proxy pad; None derives it from devices.
+    pub pad_slot: Option<u32>,
     pub profname: String,
     pub profselection: usize,
     pub monitor: usize,

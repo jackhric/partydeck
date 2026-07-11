@@ -190,6 +190,23 @@ fn split_frames(pending: &mut Vec<InputEvent>, new_events: &[InputEvent]) -> Vec
     frames
 }
 
+// (slot, source path) pairs to route for an instance. An explicit pad_slot
+// yields exactly one router even when no source device exists yet; the router
+// attaches once the slot-N pad appears.
+fn instance_pads<'a>(instance: &Instance, devices: &'a [DeviceInfo]) -> Vec<(u32, Option<&'a str>)> {
+    let mut gamepads = instance
+        .devices
+        .iter()
+        .map(|&d| &devices[d])
+        .filter(|dev| dev.enabled && dev.device_type == DeviceType::Gamepad);
+    match instance.pad_slot {
+        Some(slot) => vec![(slot, gamepads.next().map(|dev| dev.path.as_str()))],
+        None => gamepads
+            .filter_map(|dev| dev.xinput_slot.map(|slot| (slot, Some(dev.path.as_str()))))
+            .collect(),
+    }
+}
+
 pub struct ProxySession {
     players: Vec<PlayerProxy>,
 }
@@ -210,31 +227,25 @@ impl ProxySession {
     ) -> bool {
         cfg.proxy_gamepads
             && !handler.enable_hidraw
-            && instances
-                .iter()
-                .flat_map(|instance| instance.devices.iter())
-                .all(|&d| {
-                    let dev = &devices[d];
-                    !dev.enabled
-                        || dev.device_type != DeviceType::Gamepad
-                        || dev.xinput_slot.is_some()
-                })
+            && instances.iter().all(|instance| {
+                instance.pad_slot.is_some()
+                    || instance.devices.iter().all(|&d| {
+                        let dev = &devices[d];
+                        !dev.enabled
+                            || dev.device_type != DeviceType::Gamepad
+                            || dev.xinput_slot.is_some()
+                    })
+            })
     }
 
     pub fn start(instances: &[Instance], devices: &[DeviceInfo]) -> io::Result<ProxySession> {
         let mut session = ProxySession { players: Vec::new() };
         for (i, instance) in instances.iter().enumerate() {
-            for &d in &instance.devices {
-                let dev = &devices[d];
-                if !dev.enabled || dev.device_type != DeviceType::Gamepad {
-                    continue;
-                }
-                let Some(slot) = dev.xinput_slot else { continue };
-
+            for (slot, source_path) in instance_pads(instance, devices) {
                 let mut proxy = build_proxy_pad(slot)?;
                 let dev_nodes = wait_for_dev_nodes(&mut proxy)?;
                 let shutdown = Arc::new(AtomicBool::new(false));
-                let router = Router::new(proxy, slot, &dev.path, shutdown.clone());
+                let router = Router::new(proxy, slot, source_path, shutdown.clone());
                 let thread = std::thread::spawn(move || router.run());
                 session.players.push(PlayerProxy {
                     instance: i,
@@ -283,10 +294,17 @@ struct Router {
 }
 
 impl Router {
-    fn new(proxy: VirtualDevice, slot: u32, source_path: &str, shutdown: Arc<AtomicBool>) -> Self {
-        let source = Device::open(source_path)
-            .and_then(|dev| dev.set_nonblocking(true).map(|_| dev))
-            .ok();
+    fn new(
+        proxy: VirtualDevice,
+        slot: u32,
+        source_path: Option<&str>,
+        shutdown: Arc<AtomicBool>,
+    ) -> Self {
+        let source = source_path.and_then(|p| {
+            Device::open(p)
+                .and_then(|dev| dev.set_nonblocking(true).map(|_| dev))
+                .ok()
+        });
         Router {
             proxy,
             slot,
@@ -554,12 +572,55 @@ mod tests {
     fn instance(devices: Vec<usize>) -> Instance {
         Instance {
             devices,
+            pad_slot: None,
             profname: String::new(),
             profselection: 0,
             monitor: 0,
             width: 0,
             height: 0,
         }
+    }
+
+    fn instance_with_slot(devices: Vec<usize>, slot: u32) -> Instance {
+        Instance {
+            pad_slot: Some(slot),
+            ..instance(devices)
+        }
+    }
+
+    #[test]
+    fn instance_pads_explicit_slot_with_device() {
+        let devices = vec![device(DeviceType::Gamepad, true, Some(0))];
+        let pads = instance_pads(&instance_with_slot(vec![0], 3), &devices);
+        assert_eq!(pads, vec![(3, Some("/dev/input/event0"))]);
+    }
+
+    #[test]
+    fn instance_pads_explicit_slot_no_devices() {
+        let pads = instance_pads(&instance_with_slot(vec![], 2), &[]);
+        assert_eq!(pads, vec![(2, None)]);
+    }
+
+    #[test]
+    fn instance_pads_explicit_slot_ignores_non_gamepads() {
+        let devices = vec![
+            device(DeviceType::Gamepad, false, Some(0)),
+            device(DeviceType::Keyboard, true, None),
+        ];
+        let pads = instance_pads(&instance_with_slot(vec![0, 1], 5), &devices);
+        assert_eq!(pads, vec![(5, None)]);
+    }
+
+    #[test]
+    fn instance_pads_derived_from_devices() {
+        let devices = vec![
+            device(DeviceType::Gamepad, true, Some(1)),
+            device(DeviceType::Gamepad, true, None),
+            device(DeviceType::Gamepad, false, Some(2)),
+            device(DeviceType::Keyboard, true, None),
+        ];
+        let pads = instance_pads(&instance(vec![0, 1, 2, 3]), &devices);
+        assert_eq!(pads, vec![(1, Some("/dev/input/event0"))]);
     }
 
     #[test]
@@ -596,6 +657,14 @@ mod tests {
         let both = vec![instance(vec![0]), instance(vec![1])];
         assert!(!ProxySession::wanted(&cfg, &handler, &both, &mixed));
         assert!(ProxySession::wanted(&cfg, &handler, &[], &mixed));
+
+        let explicit_empty = vec![instance_with_slot(vec![], 0)];
+        assert!(ProxySession::wanted(&cfg, &handler, &explicit_empty, &[]));
+        assert!(!ProxySession::wanted(&cfg_off, &handler, &explicit_empty, &[]));
+        assert!(!ProxySession::wanted(&cfg, &handler_hidraw, &explicit_empty, &[]));
+        // Explicit slot overrides an unslotted device that would otherwise deny.
+        let explicit_unslotted = vec![instance_with_slot(vec![0], 0)];
+        assert!(ProxySession::wanted(&cfg, &handler, &explicit_unslotted, &unslotted));
     }
 }
 
@@ -718,7 +787,10 @@ mod uinput_tests {
         }
     }
 
-    fn spawn_router(slot: u32, source_path: &str) -> (Vec<String>, Arc<AtomicBool>, JoinHandle<()>) {
+    fn spawn_router(
+        slot: u32,
+        source_path: Option<&str>,
+    ) -> (Vec<String>, Arc<AtomicBool>, JoinHandle<()>) {
         let mut proxy = build_proxy_pad(slot).unwrap();
         let dev_nodes = wait_for_dev_nodes(&mut proxy).unwrap();
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -773,7 +845,7 @@ mod uinput_tests {
     #[ignore]
     fn round_trip_events() {
         let pad = FakeSteamPad::new(40);
-        let (nodes, shutdown, thread) = spawn_router(40, &pad.event_node);
+        let (nodes, shutdown, thread) = spawn_router(40, Some(&pad.event_node));
         let mut game = open_game_side(&nodes);
         assert_eq!(game.physical_path(), Some("partydeck-proxy/40"));
 
@@ -790,7 +862,7 @@ mod uinput_tests {
     #[ignore]
     fn churn_neutral_frame_then_reattach() {
         let pad = FakeSteamPad::new(41);
-        let (nodes, shutdown, thread) = spawn_router(41, &pad.event_node);
+        let (nodes, shutdown, thread) = spawn_router(41, Some(&pad.event_node));
         let mut game = open_game_side(&nodes);
 
         press(&pad, KeyCode::BTN_SOUTH, 1);
@@ -820,9 +892,31 @@ mod uinput_tests {
 
     #[test]
     #[ignore]
+    fn detached_start_then_attach() {
+        let (nodes, shutdown, thread) = spawn_router(43, None);
+        let mut game = open_game_side(&nodes);
+
+        let pad = FakeSteamPad::new(43);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut seen = false;
+        while Instant::now() < deadline && !seen {
+            press(&pad, KeyCode::BTN_SOUTH, 1);
+            seen = wait_for_key(&mut game, KeyCode::BTN_SOUTH, 1, Duration::from_millis(300));
+            if !seen {
+                press(&pad, KeyCode::BTN_SOUTH, 0);
+            }
+        }
+        assert!(seen, "router did not attach to late-created pad");
+
+        shutdown.store(true, Ordering::Relaxed);
+        thread.join().unwrap();
+    }
+
+    #[test]
+    #[ignore]
     fn ff_passthrough_and_reupload_after_churn() {
         let pad = FakeSteamPad::new(42);
-        let (nodes, shutdown, thread) = spawn_router(42, &pad.event_node);
+        let (nodes, shutdown, thread) = spawn_router(42, Some(&pad.event_node));
         let mut game = open_game_side(&nodes);
 
         let mut effect = game.upload_ff_effect(RUMBLE).unwrap();

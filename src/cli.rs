@@ -339,6 +339,7 @@ fn launch_headless(handler_name: &str, players_path: &str, layout_path: Option<&
     // We bind the Steam Input virtual pads (vendor 0x28de); the lobby joins via
     // Steam Input, so this is the device set that matches the lobby's pads.
     let mut cfg = load_cfg();
+    let proxy_mode = cfg.proxy_gamepads && !handler.enable_hidraw;
     cfg.pad_filter_type = PadFilterType::OnlySteamInput;
     let devices = scan_input_devices(&cfg.pad_filter_type);
     let dev_infos: Vec<_> = devices.iter().map(|d| d.info()).collect();
@@ -356,15 +357,26 @@ fn launch_headless(handler_name: &str, players_path: &str, layout_path: Option<&
 
     let mut instances: Vec<Instance> = Vec::with_capacity(players.len());
     for p in &players {
-        let Some(&dev_index) = slot_to_index.get(&p.xinput) else {
-            eprintln!(
-                "[partydeck] launch: no Steam Input pad for XInput slot {} (player {:?})",
-                p.xinput, p.profile
-            );
-            return 1;
+        let devices = match slot_to_index.get(&p.xinput) {
+            Some(&dev_index) => vec![dev_index],
+            None if proxy_mode => {
+                eprintln!(
+                    "[partydeck] launch: no Steam Input pad for XInput slot {} yet (player {:?}); proxy will attach when it appears",
+                    p.xinput, p.profile
+                );
+                Vec::new()
+            }
+            None => {
+                eprintln!(
+                    "[partydeck] launch: no Steam Input pad for XInput slot {} (player {:?})",
+                    p.xinput, p.profile
+                );
+                return 1;
+            }
         };
         instances.push(Instance {
-            devices: vec![dev_index],
+            devices,
+            pad_slot: Some(p.xinput),
             profname: p.profile.clone(),
             // Non-zero so it's treated as a real (non-guest) profile; profname is
             // authoritative here since run_launch skips set_instance_names.
