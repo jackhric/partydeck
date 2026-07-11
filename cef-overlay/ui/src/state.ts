@@ -11,6 +11,8 @@ export interface PdSlot {
   status: string | null;
   label: string | null;
   avatar: string | null;
+  logo: string | null;
+  controller_disconnected?: boolean;
 }
 
 export interface PdState {

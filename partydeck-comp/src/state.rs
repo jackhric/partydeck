@@ -30,6 +30,7 @@ pub struct SlotStatus {
     pub status: String,
     pub label: Option<String>,
     pub avatar: Option<String>,
+    pub logo: Option<String>,
 }
 
 pub struct CompState {
@@ -50,6 +51,7 @@ pub struct CompState {
     pub slot_windows: Vec<Option<Window>>,
     pub overlay_window: Option<Window>,
     pub slot_status: Vec<Option<SlotStatus>>,
+    pub controller_disconnected: Vec<bool>,
     pub clear_color: [f32; 4],
 
     pub space: Space<Window>,
@@ -112,9 +114,10 @@ impl CompState {
             .background
             .as_deref()
             .and_then(parse_color)
-            .unwrap_or([0.05, 0.05, 0.08, 1.0]);
+            .unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let slot_windows = vec![None; layout.slots.len()];
         let slot_status = vec![None; layout.slots.len()];
+        let controller_disconnected = vec![false; layout.slots.len()];
 
         Self {
             start_time,
@@ -132,6 +135,7 @@ impl CompState {
             slot_windows,
             overlay_window: None,
             slot_status,
+            controller_disconnected,
             clear_color,
 
             space,

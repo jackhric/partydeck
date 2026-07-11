@@ -22,12 +22,21 @@ const cardVariants: Variants = {
   }),
 };
 
+const logoVariants: Variants = {
+  hidden: { opacity: 0 },
+  shown: (delay: number) => ({
+    opacity: 0.25,
+    transition: { duration: 0.5, ease: "easeOut", delay },
+  }),
+};
+
 export default function SlotCover({
   index,
   rect,
   live,
   label,
   avatar,
+  logo,
 }: {
   index: number;
   rect: PdRect;
@@ -35,6 +44,7 @@ export default function SlotCover({
   status: string | null;
   label: string | null;
   avatar: string | null;
+  logo: string | null;
 }) {
   const [lifted, setLifted] = useState(false);
   // One-shot: once live has been seen true, a later live:false (compositor
@@ -83,6 +93,17 @@ export default function SlotCover({
                 {label}
               </span>
             </motion.div>
+          )}
+          {logo && (
+            <motion.img
+              src={"data:image/png;base64," + logo}
+              className="absolute bottom-[5%] right-[5%]"
+              style={{ width: "min(45%,340px)", height: "auto", objectFit: "contain" }}
+              variants={logoVariants}
+              custom={CARD_DELAY + index * STAGGER + 0.15}
+              initial="hidden"
+              animate="shown"
+            />
           )}
         </motion.div>
       )}

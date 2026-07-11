@@ -8,6 +8,7 @@ export interface DevSlot {
   status: string;
   label: string;
   avatar: string | null; // base64 PNG, or null for no avatar
+  controllerDisconnected: boolean;
 }
 
 export interface DevModel {
@@ -35,6 +36,7 @@ function makeSlot(i: number): DevSlot {
     status: "",
     label: `Player ${i + 1}`,
     avatar: TEST_AVATARS[i % TEST_AVATARS.length].data,
+    controllerDisconnected: false,
   };
 }
 
@@ -76,6 +78,8 @@ function push() {
         status: s.status || null,
         label: s.label || null,
         avatar: s.avatar,
+        logo: null,
+        controller_disconnected: s.controllerDisconnected,
       };
     }),
   });

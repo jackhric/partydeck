@@ -1,6 +1,8 @@
 use crate::paths::*;
 use crate::util::*;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use eframe::egui::{self, ImageSource};
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
@@ -216,6 +218,34 @@ impl Handler {
         }
 
         Err("Game root path not found".into())
+    }
+
+    pub fn steam_logo_base64(&self) -> Option<String> {
+        let appid = self.steam_appid?;
+        let dir = steamlocate::SteamDir::locate().ok()?;
+        let appdir = dir.path().join(format!("appcache/librarycache/{appid}"));
+
+        let logo = appdir.join("logo.png");
+        let path = if logo.exists() {
+            logo
+        } else {
+            std::fs::read_dir(&appdir)
+                .ok()?
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .find(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n.ends_with("_logo.png"))
+                        .unwrap_or(false)
+                })?
+        };
+
+        let bytes = std::fs::read(path).ok()?;
+        if bytes.len() > 512 * 1024 {
+            return None;
+        }
+        Some(STANDARD.encode(bytes))
     }
 
     pub fn save_to_json(&mut self) -> Result<(), Box<dyn Error>> {

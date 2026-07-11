@@ -61,6 +61,7 @@ export function runTimeline(
       status: null,
       label: `Player ${i + 1}`,
       avatar: i === 0 ? SAMPLE_AVATAR : null,
+      logo: SAMPLE_AVATAR,
     }));
     sink({ size: { w, h }, focus: 0, slots });
   }, 200);

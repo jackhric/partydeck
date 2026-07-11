@@ -67,12 +67,17 @@ fn state_json(state: &CompState) -> String {
             let status = entry.map(|s| s.status.clone());
             let label = entry.and_then(|s| s.label.clone());
             let avatar = entry.and_then(|s| s.avatar.clone());
+            let logo = entry.and_then(|s| s.logo.clone());
+            let controller_disconnected =
+                state.controller_disconnected.get(i).copied().unwrap_or(false);
             serde_json::json!({
                 "rect": {"x": r.x, "y": r.y, "w": r.w, "h": r.h},
                 "live": live,
                 "status": status,
                 "label": label,
                 "avatar": avatar,
+                "logo": logo,
+                "controller_disconnected": controller_disconnected,
             })
         })
         .collect();
@@ -103,11 +108,18 @@ fn apply(state: &mut CompState, cmd: Command) -> Response {
             slots::relayout(state);
             set_focus(state, state.layout.focus)
         }
-        Command::SetSlotStatus { slot, status, label, avatar } => {
+        Command::SetSlotStatus { slot, status, label, avatar, logo } => {
             if slot >= state.slot_status.len() {
                 return Response::Err(format!("slot {slot} out of range"));
             }
-            state.slot_status[slot] = Some(SlotStatus { status, label, avatar });
+            state.slot_status[slot] = Some(SlotStatus { status, label, avatar, logo });
+            Response::Ok
+        }
+        Command::SetControllerConnected { slot, connected } => {
+            if slot >= state.controller_disconnected.len() {
+                return Response::Err(format!("slot {slot} out of range"));
+            }
+            state.controller_disconnected[slot] = !connected;
             Response::Ok
         }
     }

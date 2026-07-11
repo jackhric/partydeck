@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import DisconnectedOverlay from "./DisconnectedOverlay";
 import SlotCover from "./SlotCover";
 import { borderColor, pdStore } from "./state";
 import type { PdRect } from "./state";
@@ -36,6 +37,15 @@ export default function App() {
           status={slot.status}
           label={slot.label}
           avatar={slot.avatar}
+          logo={slot.logo}
+        />
+      ))}
+      {state.slots.map((slot, i) => (
+        <DisconnectedOverlay
+          key={`dc-${i}`}
+          slot={i}
+          rect={slot.rect}
+          show={slot.controller_disconnected === true}
         />
       ))}
       {/* Split-screen guide lines, drawn persistently ABOVE the covers (z-10) so

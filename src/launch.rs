@@ -68,6 +68,7 @@ pub fn run_launch(
         None
     };
 
+    let logo = handler.steam_logo_base64();
     for (i, instance) in instances.iter().enumerate() {
         let display_name = instance.profname.strip_prefix('.').unwrap_or(&instance.profname);
         let cmd = partydeck_comp_proto::ipc::Command::SetSlotStatus {
@@ -75,6 +76,7 @@ pub fn run_launch(
             status: "loading".into(),
             label: Some(display_name.to_string()),
             avatar: read_avatar_base64(&instance.profname),
+            logo: logo.clone(),
         };
         if let Err(e) = comp.send(&cmd) {
             eprintln!("[partydeck] failed to set slot {i} status: {e}");

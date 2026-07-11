@@ -135,6 +135,16 @@ export default function DevPanel() {
                 />
                 live
               </label>
+              <label style={S.check} title="Show controller-disconnected overlay">
+                <input
+                  type="checkbox"
+                  checked={s.controllerDisconnected}
+                  onChange={(e) =>
+                    devStore.patchSlot(i, { controllerDisconnected: e.target.checked })
+                  }
+                />
+                no pad
+              </label>
             </div>
             <input
               style={S.text}
