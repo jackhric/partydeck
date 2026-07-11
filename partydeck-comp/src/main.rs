@@ -51,6 +51,17 @@ fn load_layout(args: &Args) -> Result<partydeck_comp_proto::layout::Layout, Stri
     Ok(layout)
 }
 
+fn frame_interval(state: &CompState) -> Duration {
+    let mhz = state
+        .backend
+        .output
+        .current_mode()
+        .map(|m| m.refresh)
+        .filter(|&r| r > 0)
+        .unwrap_or(60_000) as u64;
+    Duration::from_nanos(1_000_000_000_000 / mhz)
+}
+
 fn parse_size(s: &str) -> Result<(u32, u32), String> {
     let (w, h) = s.split_once('x').ok_or("expected WxH")?;
     Ok((
@@ -82,17 +93,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // especially) pace callbacks to their own compositing schedule, and a
     // callback-driven loop quantizes every client below us to a fraction of
     // the refresh rate. Nested kwin_wayland works the same way.
-    let frame_interval = Duration::from_nanos(16_666_667);
     let mut next_frame = std::time::Instant::now();
     event_loop
         .handle()
         .insert_source(Timer::immediate(), move |_, _, data| {
-            render::tick_children(&mut data.state, &mut data.display_handle);
+            render::report_telemetry(&mut data.state);
+            let now = std::time::Instant::now();
             if data.state.host_ready {
                 data.state.host_ready = false;
-                render::redraw(&mut data.state, &mut data.display_handle);
+                render::redraw(&mut data.state, &mut data.display_handle, now);
+            } else if now.duration_since(data.state.last_composite_at) > render::STALL_TIMEOUT {
+                render::stall_tick(&mut data.state, &mut data.display_handle);
             }
-            let now = std::time::Instant::now();
+            let frame_interval = frame_interval(&data.state);
             next_frame += frame_interval;
             if next_frame < now {
                 next_frame = now + frame_interval;

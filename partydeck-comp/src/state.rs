@@ -38,9 +38,13 @@ pub struct CompState {
     pub frames: u32,
     pub frame_seq: u64,
     pub child_commits: u32,
+    pub commits_since_composite: u32,
     pub commit_gaps: [u32; 3],
     pub last_commit_at: Option<std::time::Instant>,
     pub last_fps_report: std::time::Instant,
+    pub last_composite_at: std::time::Instant,
+    pub legacy_ack: bool,
+    pub frame_log: Option<crate::render::FrameLog>,
     pub socket_names: Vec<OsString>,
     pub display_handle: DisplayHandle,
 
@@ -119,14 +123,25 @@ impl CompState {
         let slot_status = vec![None; layout.slots.len()];
         let controller_disconnected = vec![false; layout.slots.len()];
 
+        let legacy_ack = std::env::var("PARTYDECK_COMP_LEGACY_ACK").is_ok_and(|v| v == "1");
+        if legacy_ack {
+            eprintln!("[comp] legacy on-commit present acks enabled");
+        }
+        let frame_log =
+            std::env::var_os("PARTYDECK_COMP_FRAME_LOG").and_then(crate::render::FrameLog::open);
+
         Self {
             start_time,
             frames: 0,
             frame_seq: 0,
             child_commits: 0,
+            commits_since_composite: 0,
             commit_gaps: [0; 3],
             last_commit_at: None,
             last_fps_report: start_time,
+            last_composite_at: start_time,
+            legacy_ack,
+            frame_log,
             display_handle: dh,
 
             host_ready: true,

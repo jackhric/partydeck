@@ -46,6 +46,7 @@ impl CompositorHandler for CompState {
 
     fn commit(&mut self, surface: &WlSurface) {
         self.child_commits += 1;
+        self.commits_since_composite += 1;
         on_commit_buffer_handler::<Self>(surface);
         if !is_sync_subsurface(surface) {
             let mut root = surface.clone();
@@ -57,14 +58,18 @@ impl CompositorHandler for CompState {
                 .elements()
                 .find(|w| w.toplevel().unwrap().wl_surface() == &root)
                 .cloned();
-            if let Some(window) = window {
-                window.on_commit();
-                crate::slots::position_on_commit(self, &window);
-                // Ack presents on commit rather than on our next redraw: children
-                // pace themselves with their own vblank timer, and a present_wait
-                // that blocks until our redraw quantizes them to a fraction of
-                // the refresh rate.
-                crate::render::ack_present(self, &window);
+            match window {
+                Some(window) => {
+                    window.on_commit();
+                    crate::slots::position_on_commit(self, &window);
+                    crate::render::note_commit(self);
+                    if self.legacy_ack {
+                        crate::render::ack_present(self, &window);
+                    }
+                }
+                // Surfaces we never composite must not keep feedback pending:
+                // nested gamescope's present_wait deadlocks on it.
+                None => crate::render::discard_feedback(self, &root),
             }
         };
 

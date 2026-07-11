@@ -168,7 +168,10 @@ pub fn relayout(state: &mut CompState) {
 }
 
 pub fn handle_output_resize(state: &mut CompState, size: Size<i32, Physical>) {
-    let mode = Mode { size, refresh: 60_000 };
+    // The monitor (and thus refresh) may only be known after mapping; re-read
+    // it here so mode, feedback and timer period pick up the real rate.
+    let refresh = crate::backend::winit::monitor_refresh_mhz(state.backend.winit.window());
+    let mode = Mode { size, refresh };
     state.backend.output.change_current_state(Some(mode), None, None, None);
     state.backend.output.set_preferred(mode);
     relayout(state);

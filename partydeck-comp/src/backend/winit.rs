@@ -35,9 +35,11 @@ pub fn init(
     }
     let (mut backend, winit) = winit::init_from_attributes::<GlesRenderer>(attrs)?;
 
+    let refresh = monitor_refresh_mhz(backend.window());
+    eprintln!("[comp] output refresh {refresh} mHz");
     let mode = Mode {
         size: backend.window_size(),
-        refresh: 60_000,
+        refresh,
     };
     let output = Output::new(
         "partydeck-comp".to_string(),
@@ -85,6 +87,15 @@ pub fn init(
         },
         winit,
     ))
+}
+
+pub fn monitor_refresh_mhz(window: &WinitWindow) -> i32 {
+    window
+        .current_monitor()
+        .and_then(|m| m.refresh_rate_millihertz())
+        .map(|r| r as i32)
+        .filter(|&r| r > 0)
+        .unwrap_or(60_000)
 }
 
 // Non-Steam shortcuts report a 64-bit SteamGameId with the 32-bit shortcut
