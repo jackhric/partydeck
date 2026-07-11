@@ -160,6 +160,9 @@ impl InputDevice {
 pub fn scan_input_devices(filter: &PadFilterType) -> Vec<InputDevice> {
     let mut pads: Vec<InputDevice> = Vec::new();
     for dev in evdev::enumerate() {
+        if crate::proxy::is_proxy_phys(dev.1.physical_path()) {
+            continue;
+        }
         let enabled = match filter {
             PadFilterType::All => true,
             PadFilterType::NoSteamInput => dev.1.input_id().vendor() != 0x28de,

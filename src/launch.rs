@@ -9,6 +9,7 @@ use crate::instance::*;
 use crate::paths::*;
 use crate::monitor::Monitor;
 use crate::profiles::{create_profile, create_profile_gamesave, read_avatar_base64, remove_guest_profiles};
+use crate::proxy::ProxySession;
 use crate::session::Session;
 use crate::util::*;
 
@@ -55,6 +56,18 @@ pub fn run_launch(
 
     setup_profiles(handler, &instances)?;
 
+    let proxies = if ProxySession::wanted(cfg, handler, &instances, input_devices) {
+        match ProxySession::start(&instances, input_devices) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                eprintln!("[partydeck] proxy pads unavailable, using direct devices: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     for (i, instance) in instances.iter().enumerate() {
         let display_name = instance.profname.strip_prefix('.').unwrap_or(&instance.profname);
         let cmd = partydeck_comp_proto::ipc::Command::SetSlotStatus {
@@ -77,7 +90,16 @@ pub fn run_launch(
         fuse_overlayfs_mount_gamedirs(handler, &instances)?;
     }
 
-    let launch_result = launch_game(handler, input_devices, &instances, cfg, session.as_ref(), &comp);
+    let launch_result = launch_game(
+        handler,
+        input_devices,
+        &instances,
+        cfg,
+        session.as_ref(),
+        &comp,
+        proxies.as_ref(),
+    );
+    drop(proxies);
     drop(comp);
 
     // Best-effort cleanup regardless of launch outcome — mirrors the GUI path.
@@ -98,8 +120,9 @@ pub fn launch_game(
     cfg: &PartyConfig,
     session: Option<&Session>,
     comp: &Compositor,
+    proxies: Option<&ProxySession>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let new_cmds = launch_cmds(h, input_devices, instances, cfg, session, comp)?;
+    let new_cmds = launch_cmds(h, input_devices, instances, cfg, session, comp, proxies)?;
     print_launch_cmds(&new_cmds);
     if let Some(session) = session {
         session.write_manifest(h, instances, &new_cmds);
@@ -168,6 +191,7 @@ pub fn launch_cmds(
     cfg: &PartyConfig,
     session: Option<&Session>,
     comp: &Compositor,
+    proxies: Option<&ProxySession>,
 ) -> Result<Vec<std::process::Command>, Box<dyn std::error::Error>> {
     let win = h.win();
     let exec = Path::new(&h.exec);
@@ -347,18 +371,28 @@ pub fn launch_cmds(
         cmd.arg("--die-with-parent");
         cmd.args(["--dev-bind", "/", "/"]);
         cmd.args(["--tmpfs", "/tmp"]);
-        // Mask out any gamepads that aren't this player's
-        for (d, dev) in input_devices.iter().enumerate() {
-            if !dev.enabled
-                || (!instance.devices.contains(&d) && dev.device_type == DeviceType::Gamepad)
-            {
-                cmd.args(["--bind", "/dev/null", &dev.path]);
-                // Wine's winebus reads controllers via /dev/hidraw* when
-                // hidraw is exposed, so masking only the evdev node leaks
-                // input to every instance.
-                if h.enable_hidraw {
-                    for hp in &dev.hidraw_paths {
-                        cmd.args(["--bind", "/dev/null", hp]);
+        match proxies {
+            Some(p) => {
+                cmd.args(["--tmpfs", "/dev/input"]);
+                for node in p.instance_dev_nodes(i) {
+                    cmd.args(["--dev-bind", node, node]);
+                }
+            }
+            None => {
+                // Mask out any gamepads that aren't this player's
+                for (d, dev) in input_devices.iter().enumerate() {
+                    if !dev.enabled
+                        || (!instance.devices.contains(&d) && dev.device_type == DeviceType::Gamepad)
+                    {
+                        cmd.args(["--bind", "/dev/null", &dev.path]);
+                        // Wine's winebus reads controllers via /dev/hidraw* when
+                        // hidraw is exposed, so masking only the evdev node leaks
+                        // input to every instance.
+                        if h.enable_hidraw {
+                            for hp in &dev.hidraw_paths {
+                                cmd.args(["--bind", "/dev/null", hp]);
+                            }
+                        }
                     }
                 }
             }

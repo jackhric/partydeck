@@ -8,6 +8,7 @@ mod launch;
 mod monitor;
 mod paths;
 mod profiles;
+mod proxy;
 mod session;
 mod util;
 

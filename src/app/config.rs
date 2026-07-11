@@ -47,6 +47,8 @@ pub struct PartyConfig {
     pub proton_wow64: bool,
     #[serde(default)]
     pub pad_filter_type: PadFilterType,
+    #[serde(default = "default_true")]
+    pub proxy_gamepads: bool,
     #[serde(default)]
     pub allow_multiple_instances_on_same_device: bool,
     #[serde(default = "default_true")]
@@ -71,6 +73,7 @@ impl Default for PartyConfig {
             proton_separate_pfxs: true,
             proton_wow64: true,
             pad_filter_type: PadFilterType::NoSteamInput,
+            proxy_gamepads: true,
             allow_multiple_instances_on_same_device: false,
             profile_unique_dirs: true,
             disable_mount_gamedirs: false,
