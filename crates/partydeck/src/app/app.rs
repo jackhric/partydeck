@@ -1,17 +1,23 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 
-use super::config::*;
+use super::dialogs::msg;
+use crate::config::*;
 use crate::handler::*;
 use crate::input::*;
-use crate::instance::*;
-use crate::launch::*;
+use crate::instance::Instance;
+use crate::launch::request::default_layout;
+use crate::launch::{LaunchRequest, run_launch};
 use crate::monitor::Monitor;
-use crate::profiles::*;
-use crate::util::*;
+use crate::profile::*;
+use crate::steam::get_installed_steamapps;
+use crate::update::check_for_partydeck_update;
 
 use eframe::egui::{self, Key};
+
+const LAUNCH_SETTLE_DELAY: std::time::Duration = std::time::Duration::from_millis(1500);
+const TASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[derive(Eq, PartialEq)]
 pub enum MenuPage {
@@ -31,6 +37,7 @@ pub enum SettingsPage {
 }
 
 pub struct PartyApp {
+    /// Leading None is the "no Steam app" dropdown entry.
     pub installed_steamapps: Vec<Option<steamlocate::App>>,
     pub needs_update: Arc<AtomicBool>,
     pub options: PartyConfig,
@@ -51,14 +58,7 @@ pub struct PartyApp {
 
     pub loading_msg: Option<String>,
     pub loading_since: Option<std::time::Instant>,
-    #[allow(dead_code)]
     pub task: Option<std::thread::JoinHandle<()>>,
-}
-
-macro_rules! cur_handler {
-    ($self:expr) => {
-        &$self.handlers[$self.selected_handler]
-    };
 }
 
 impl PartyApp {
@@ -73,9 +73,12 @@ impl PartyApp {
             Some(_) => MenuPage::Instances,
             None => MenuPage::Home,
         };
+        let installed_steamapps = std::iter::once(None)
+            .chain(get_installed_steamapps().into_iter().map(Some))
+            .collect();
 
         let mut app = Self {
-            installed_steamapps: get_installed_steamapps(),
+            installed_steamapps,
             needs_update: Arc::new(AtomicBool::new(false)),
             options,
             cur_page,
@@ -167,21 +170,7 @@ impl eframe::App for PartyApp {
             }
         });
 
-        if let Some(handle) = self.task.take() {
-            if handle.is_finished() {
-                let _ = handle.join();
-                self.loading_since = None;
-                self.loading_msg = None;
-            } else {
-                self.task = Some(handle);
-            }
-        }
-        if let Some(start) = self.loading_since {
-            if start.elapsed() > std::time::Duration::from_secs(60) {
-                // Give up waiting after one minute
-                self.loading_msg = Some("Operation timed out".to_string());
-            }
-        }
+        self.poll_task();
         if let Some(msg) = &self.loading_msg {
             egui::Area::new("loading".into())
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
@@ -201,7 +190,7 @@ impl eframe::App for PartyApp {
                 });
         }
         if ctx.input(|input| input.focused) {
-            ctx.request_repaint_after(std::time::Duration::from_millis(33)); // 30 fps
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
     }
 }
@@ -214,6 +203,23 @@ impl PartyApp {
         self.loading_msg = Some(msg.to_string());
         self.loading_since = Some(std::time::Instant::now());
         self.task = Some(std::thread::spawn(f));
+    }
+
+    fn poll_task(&mut self) {
+        if let Some(handle) = self.task.take() {
+            if handle.is_finished() {
+                let _ = handle.join();
+                self.loading_since = None;
+                self.loading_msg = None;
+            } else {
+                self.task = Some(handle);
+            }
+        }
+        if let Some(start) = self.loading_since
+            && start.elapsed() > TASK_TIMEOUT
+        {
+            self.loading_msg = Some("Operation timed out".to_string());
+        }
     }
 
     pub fn is_lite(&self) -> bool {
@@ -229,11 +235,11 @@ impl PartyApp {
             match pad.poll() {
                 Some(PadButton::ABtn) => key = Some(Key::Enter),
                 Some(PadButton::BBtn) => {
-                    if self.handler_lite.is_some() {
-                        self.cur_page = MenuPage::Instances;
+                    self.cur_page = if self.handler_lite.is_some() {
+                        MenuPage::Instances
                     } else {
-                        self.cur_page = MenuPage::Home;
-                    }
+                        MenuPage::Home
+                    };
                 }
                 Some(PadButton::XBtn) => {
                     self.profiles = scan_profiles(false);
@@ -253,8 +259,7 @@ impl PartyApp {
                 Some(PadButton::Down) => key = Some(Key::ArrowDown),
                 Some(PadButton::Left) => key = Some(Key::ArrowLeft),
                 Some(PadButton::Right) => key = Some(Key::ArrowRight),
-                Some(_) => {}
-                None => {}
+                Some(_) | None => {}
             }
         }
 
@@ -270,118 +275,101 @@ impl PartyApp {
     }
 
     fn handle_devices_instance_menu(&mut self) {
-        let mut i = 0;
-        while i < self.input_devices.len() {
+        for i in 0..self.input_devices.len() {
             if !self.input_devices[i].enabled() {
-                i += 1;
                 continue;
             }
             match self.input_devices[i].poll() {
                 Some(PadButton::ABtn) | Some(PadButton::ZKey) | Some(PadButton::RightClick) => {
-                    if self.input_devices[i].device_type() != DeviceType::Gamepad
-                        && !self.options.kbm_support
-                    {
-                        continue;
-                    }
-                    if !self.options.allow_multiple_instances_on_same_device
-                        && self.is_device_in_any_instance(i)
-                    {
-                        continue;
-                    }
-                    // Prevent same keyboard/mouse device in multiple instances due to current custom gamescope limitations
-                    // TODO: Remove this when custom gamescope supports the same keyboard/mouse device for multiple instances
-                    if self.input_devices[i].device_type() != DeviceType::Gamepad
-                        && self.is_device_in_any_instance(i)
-                    {
-                        continue;
-                    }
-
-                    match self.instance_add_dev {
-                        Some(inst) => {
-                            // Add the device in the instance only if it's not already there
-                            if !self.is_device_in_instance(inst, i) {
-                                self.instance_add_dev = None;
-                                self.instances[inst].devices.push(i);
-                            } else {
-                                continue;
-                            }
-                        }
-                        None => {
-                            self.instances.push(Instance {
-                                devices: vec![i],
-                                pad_slot: None,
-                                profname: String::new(),
-                                profselection: 0,
-                                monitor: 0,
-                                width: 0,
-                                height: 0,
-                            });
-                        }
-                    }
+                    self.add_device_to_instances(i);
                 }
                 Some(PadButton::BBtn) | Some(PadButton::XKey) => {
-                    if self.instance_add_dev != None {
+                    if self.instance_add_dev.is_some() {
                         self.instance_add_dev = None;
                     } else if self.is_device_in_any_instance(i) {
                         self.remove_device(i);
-                    } else if self.instances.len() < 1 {
+                    } else if self.instances.is_empty() {
                         self.cur_page = MenuPage::Game;
                     }
                 }
                 Some(PadButton::YBtn) | Some(PadButton::AKey) => {
-                    if self.instance_add_dev == None {
-                        if let Some((instance, _)) = self.find_device_in_instance(i) {
-                            self.instance_add_dev = Some(instance);
-                        }
+                    if self.instance_add_dev.is_none()
+                        && let Some((instance, _)) = self.find_device_in_instance(i)
+                    {
+                        self.instance_add_dev = Some(instance);
                     }
                 }
                 Some(PadButton::StartBtn) => {
-                    if self.instances.len() > 0 && self.is_device_in_any_instance(i) {
+                    if !self.instances.is_empty() && self.is_device_in_any_instance(i) {
                         self.prepare_game_launch();
                     }
                 }
                 _ => {}
             }
-            i += 1;
+        }
+    }
+
+    fn add_device_to_instances(&mut self, dev: usize) {
+        let is_gamepad = self.input_devices[dev].device_type() == DeviceType::Gamepad;
+        if !is_gamepad && !self.options.kbm_support {
+            return;
+        }
+        if !self.options.allow_multiple_instances_on_same_device
+            && self.is_device_in_any_instance(dev)
+        {
+            return;
+        }
+        // The custom gamescope cannot hold one keyboard/mouse for several
+        // instances yet, so those devices stay exclusive to one instance.
+        if !is_gamepad && self.is_device_in_any_instance(dev) {
+            return;
+        }
+
+        match self.instance_add_dev {
+            Some(inst) => {
+                if !self.is_device_in_instance(inst, dev) {
+                    self.instance_add_dev = None;
+                    self.instances[inst].devices.push(dev);
+                }
+            }
+            None => self.instances.push(Instance::new(vec![dev])),
         }
     }
 
     fn is_device_in_any_instance(&self, dev: usize) -> bool {
-        for instance in &self.instances {
-            if instance.devices.contains(&dev) {
-                return true;
-            }
-        }
-        false
+        self.instances
+            .iter()
+            .any(|instance| instance.devices.contains(&dev))
     }
 
     fn is_device_in_instance(&self, instance_index: usize, dev: usize) -> bool {
-        if self.instances[instance_index].devices.contains(&dev) {
-            return true;
-        }
-        false
+        self.instances
+            .get(instance_index)
+            .is_some_and(|instance| instance.devices.contains(&dev))
     }
 
-    fn find_device_in_instance(&mut self, dev: usize) -> Option<(usize, usize)> {
-        for (i, instance) in self.instances.iter().enumerate() {
-            for (d, device) in instance.devices.iter().enumerate() {
-                if device == &dev {
-                    return Some((i, d));
-                }
-            }
-        }
-        None
+    fn find_device_in_instance(&self, dev: usize) -> Option<(usize, usize)> {
+        self.instances.iter().enumerate().find_map(|(i, instance)| {
+            instance
+                .devices
+                .iter()
+                .position(|d| *d == dev)
+                .map(|d| (i, d))
+        })
     }
 
-    fn find_device_in_instance_from_end(&mut self, dev: usize) -> Option<(usize, usize)> {
-        for (i, instance) in self.instances.iter().enumerate().rev() {
-            for (d, device) in instance.devices.iter().enumerate() {
-                if device == &dev {
-                    return Some((i, d));
-                }
-            }
-        }
-        None
+    fn find_device_in_instance_from_end(&self, dev: usize) -> Option<(usize, usize)> {
+        self.instances
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(i, instance)| {
+                instance
+                    .devices
+                    .iter()
+                    .position(|d| *d == dev)
+                    .map(|d| (i, d))
+            })
     }
 
     pub fn remove_device(&mut self, dev: usize) {
@@ -394,49 +382,52 @@ impl PartyApp {
     }
 
     pub fn remove_device_instance(&mut self, instance_index: usize, dev: usize) {
-        let device_index = self.instances[instance_index]
-            .devices
-            .iter()
-            .position(|device| device == &dev);
-
-        if let Some(d) = device_index {
-            self.instances[instance_index].devices.remove(d);
-
-            if self.instances[instance_index].devices.is_empty() {
+        let Some(instance) = self.instances.get_mut(instance_index) else {
+            return;
+        };
+        if let Some(d) = instance.devices.iter().position(|device| *device == dev) {
+            instance.devices.remove(d);
+            if instance.devices.is_empty() {
                 self.instances.remove(instance_index);
             }
         }
     }
 
     pub fn prepare_game_launch(&mut self) {
-        // Resolutions are filled in by run_launch; names need self.profiles +
-        // guest randomization, so resolve them here before cloning instances.
-        set_instance_names(&mut self.instances, &self.profiles);
-
-        let handler = if let Some(h) = self.handler_lite.clone() {
-            h
-        } else {
-            cur_handler!(self).to_owned()
+        let handler = match &self.handler_lite {
+            Some(h) => h.clone(),
+            None => match self.handlers.get(self.selected_handler) {
+                Some(h) => h.clone(),
+                None => return,
+            },
+        };
+        let Some(monitor) = self.monitors.first().cloned() else {
+            msg("Launch Error", "No monitor detected");
+            return;
         };
 
-        let instances = self.instances.clone();
         let dev_infos: Vec<DeviceInfo> = self.input_devices.iter().map(|p| p.info()).collect();
-        let monitors = self.monitors.clone();
-
         let cfg = self.options.clone();
-        let _ = save_cfg(&cfg);
+        if let Err(e) = save_cfg(&cfg) {
+            eprintln!("[partydeck] Couldn't save settings before launch: {e}");
+        }
+        let layout = default_layout(&cfg.layout_preset, self.instances.len());
+        let request = LaunchRequest::new(
+            handler,
+            self.instances.clone(),
+            dev_infos,
+            cfg,
+            monitor,
+            layout,
+        );
 
         self.cur_page = MenuPage::Home;
         self.spawn_task(
             "Launching...\n\nDon't press any buttons or move any analog sticks or mice.",
             move || {
-                sleep(std::time::Duration::from_secs_f32(1.5));
-
-                let players = instances.len();
-                let layout = partydeck_comp_proto::presets::by_name(&cfg.layout_preset, players)
-                    .unwrap_or_else(|| partydeck_comp_proto::presets::quadrants(players));
-                if let Err(err) = run_launch(&handler, instances, &dev_infos, &cfg, &monitors, &layout) {
-                    println!("[partydeck] Launch error: {}", err);
+                sleep(LAUNCH_SETTLE_DELAY);
+                if let Err(err) = run_launch(request) {
+                    eprintln!("[partydeck] Launch error: {err}");
                     msg("Launch Error", &format!("{err}"));
                 }
             },

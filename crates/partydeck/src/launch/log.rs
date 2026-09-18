@@ -5,29 +5,30 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
-use crate::app::PartyConfig;
+use crate::config::PartyConfig;
 use crate::handler::Handler;
 use crate::instance::Instance;
-use crate::paths::PATH_PARTY;
+use crate::paths::logs_dir;
 
 const FALLBACK_SESSIONS_KEPT: usize = 20;
 
-pub struct Session {
+/// Per-launch log directory: a manifest, the handler, and one stdout/stderr
+/// capture per instance. PARTYDECK_SESSION_LOG_DIR picks the directory;
+/// otherwise the newest few sessions are kept under the data dir.
+pub struct SessionLog {
     dir: PathBuf,
     started_at: u64,
-    cfg: PartyConfig,
+    debug_game_logs: bool,
+    config: Value,
 }
 
-impl Session {
+impl SessionLog {
     pub fn create(cfg: &PartyConfig) -> Option<Self> {
-        let env_dir =
-            std::env::var_os("PARTYDECK_SESSION_LOG_DIR").filter(|d| !d.is_empty());
+        let env_dir = std::env::var_os("PARTYDECK_SESSION_LOG_DIR").filter(|d| !d.is_empty());
         let using_fallback = env_dir.is_none();
-        let dir = env_dir.map(PathBuf::from).unwrap_or_else(|| {
-            PATH_PARTY
-                .join("logs")
-                .join(format!("session-{}", epoch_secs()))
-        });
+        let dir = env_dir
+            .map(PathBuf::from)
+            .unwrap_or_else(|| logs_dir().join(format!("session-{}", epoch_secs())));
         if let Err(e) = fs::create_dir_all(&dir) {
             eprintln!(
                 "[partydeck] Failed to create session log dir {}: {e}",
@@ -36,12 +37,13 @@ impl Session {
             return None;
         }
         if using_fallback {
-            prune_fallback_sessions(&PATH_PARTY.join("logs"), &dir);
+            prune_fallback_sessions(&logs_dir(), &dir);
         }
-        Some(Session {
+        Some(SessionLog {
             dir,
             started_at: epoch_secs(),
-            cfg: cfg.clone(),
+            debug_game_logs: cfg.debug_game_logs,
+            config: serde_json::to_value(cfg).unwrap_or(Value::Null),
         })
     }
 
@@ -69,18 +71,6 @@ impl Session {
             .iter()
             .enumerate()
             .map(|(i, cmd)| {
-                let env: serde_json::Map<String, Value> = cmd
-                    .get_envs()
-                    .map(|(k, v)| {
-                        (
-                            k.to_string_lossy().into_owned(),
-                            match v {
-                                Some(v) => Value::String(v.to_string_lossy().into_owned()),
-                                None => Value::Null,
-                            },
-                        )
-                    })
-                    .collect();
                 json!({
                     "index": i,
                     "profile": instances.get(i).map(|inst| inst.profname.clone()),
@@ -90,13 +80,9 @@ impl Session {
                         .get_args()
                         .map(|a| a.to_string_lossy().into_owned())
                         .collect::<Vec<_>>(),
-                    "env": env,
+                    "env": env_json(cmd),
                     "stdout_log": format!("instance-{i}.log"),
-                    "proton_log_dir": if win && self.cfg.debug_game_logs {
-                        Some(format!("proton-{i}"))
-                    } else {
-                        None
-                    },
+                    "proton_log_dir": (win && self.debug_game_logs).then(|| format!("proton-{i}")),
                     "exit_code": Value::Null,
                     "signal": Value::Null,
                 })
@@ -110,8 +96,8 @@ impl Session {
             "handler": h.name,
             "steam_appid": h.steam_appid,
             "win": win,
-            "debug_game_logs": self.cfg.debug_game_logs,
-            "config": &self.cfg,
+            "debug_game_logs": self.debug_game_logs,
+            "config": self.config,
             "instances": instances_json,
         });
         self.write_json("session.json", &manifest);
@@ -137,10 +123,7 @@ impl Session {
             }
         };
 
-        if let Some(insts) = manifest
-            .get_mut("instances")
-            .and_then(|v| v.as_array_mut())
-        {
+        if let Some(insts) = manifest.get_mut("instances").and_then(|v| v.as_array_mut()) {
             for (inst, status) in insts.iter_mut().zip(statuses) {
                 if let Some(status) = status {
                     inst["exit_code"] = status.code().map_or(Value::Null, Value::from);
@@ -163,6 +146,18 @@ impl Session {
     }
 }
 
+fn env_json(cmd: &Command) -> serde_json::Map<String, Value> {
+    cmd.get_envs()
+        .map(|(k, v)| {
+            let value = match v {
+                Some(v) => Value::String(v.to_string_lossy().into_owned()),
+                None => Value::Null,
+            };
+            (k.to_string_lossy().into_owned(), value)
+        })
+        .collect()
+}
+
 fn epoch_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -170,6 +165,8 @@ fn epoch_secs() -> u64 {
         .unwrap_or(0)
 }
 
+// Keeps the newest FALLBACK_SESSIONS_KEPT - 1 siblings; the current dir makes
+// up the full count.
 fn prune_fallback_sessions(logs_dir: &Path, current: &Path) {
     let Ok(entries) = fs::read_dir(logs_dir) else {
         return;
@@ -185,7 +182,6 @@ fn prune_fallback_sessions(logs_dir: &Path, current: &Path) {
         })
         .collect();
     dirs.sort();
-    // Keep the newest 19 siblings; the current dir makes 20.
     while dirs.len() > FALLBACK_SESSIONS_KEPT - 1 {
         let victim = dirs.remove(0);
         if let Err(e) = fs::remove_dir_all(&victim) {

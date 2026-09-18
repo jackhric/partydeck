@@ -1,11 +1,11 @@
 use super::app::{MenuPage, PartyApp};
-use crate::Handler;
-use crate::handler::import_pd2;
-use crate::handler::scan_handlers;
+use super::dialogs::{msg, pick_pd2_save_path, pick_pd2_to_import, yesno};
+use super::handler_view;
+use crate::handler::package::{export_pd2, import_pd2};
+use crate::handler::{Handler, scan_handlers};
 use crate::input::*;
-use crate::monitor::get_monitors_errorless;
-use crate::profiles::scan_profiles;
-use crate::util::*;
+use crate::monitor::detect_monitors;
+use crate::profile::scan_profiles;
 
 use eframe::egui::Popup;
 use eframe::egui::RichText;
@@ -42,16 +42,22 @@ impl PartyApp {
             }
 
             let settingsbtn = ui.add(
-                egui::Button::image_and_text(egui::include_image!("../../assets/glyphs/BTN_NORTH.png"), "⛭")
-                    .selected(self.cur_page == MenuPage::Settings),
+                egui::Button::image_and_text(
+                    egui::include_image!("../../assets/glyphs/BTN_NORTH.png"),
+                    "⛭",
+                )
+                .selected(self.cur_page == MenuPage::Settings),
             );
             if settingsbtn.clicked() {
                 self.cur_page = MenuPage::Settings;
             }
 
             let profilesbtn = ui.add(
-                egui::Button::image_and_text(egui::include_image!("../../assets/glyphs/BTN_WEST.png"), "👥")
-                    .selected(self.cur_page == MenuPage::Profiles),
+                egui::Button::image_and_text(
+                    egui::include_image!("../../assets/glyphs/BTN_WEST.png"),
+                    "👥",
+                )
+                .selected(self.cur_page == MenuPage::Profiles),
             );
             if profilesbtn.clicked() {
                 self.profiles = scan_profiles(false);
@@ -62,10 +68,10 @@ impl PartyApp {
                 self.instances.clear();
                 self.input_devices = scan_input_devices(&self.options.pad_filter_type);
             }
-            
+
             if ui.button("🖵 🔄").clicked() {
                 self.instances.clear();
-                self.monitors = get_monitors_errorless();
+                self.monitors = detect_monitors();
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -106,9 +112,11 @@ impl PartyApp {
                     self.handler_edit = Some(Handler::default());
                     self.cur_page = MenuPage::EditHandler;
                 }
-                if ui.button("⬇").clicked() {
-                    if let Err(e) = import_pd2() {
-                        msg("Error", &format!("Error importing PD2: {}", e));
+                if ui.button("⬇").clicked()
+                    && let Some(file) = pick_pd2_to_import()
+                {
+                    if let Err(e) = import_pd2(&file) {
+                        msg("Error", &format!("Error importing PD2: {e}"));
                     } else {
                         self.handlers = scan_handlers();
                     }
@@ -201,7 +209,7 @@ impl PartyApp {
 
             ui.horizontal(|ui| {
                 ui.add(
-                    egui::Image::new(self.handlers[i].icon())
+                    egui::Image::new(handler_view::icon(&self.handlers[i]))
                         .max_width(16.0)
                         .corner_radius(2),
                 );
@@ -209,7 +217,7 @@ impl PartyApp {
                 let btn = ui.selectable_value(
                     &mut self.selected_handler,
                     i,
-                    self.handlers[i].display_clamp(),
+                    handler_view::display_clamp(&self.handlers[i]),
                 );
                 if btn.has_focus() {
                     btn.scroll_to_me(None);
@@ -229,43 +237,44 @@ impl PartyApp {
             self.cur_page = MenuPage::EditHandler;
         }
 
-        if ui.button("Open Folder").clicked() {
-            if let Err(_) = std::process::Command::new("xdg-open")
-                .arg(self.handlers[i].path_handler.clone())
+        if ui.button("Open Folder").clicked()
+            && std::process::Command::new("xdg-open")
+                .arg(&self.handlers[i].path_handler)
                 .status()
-            {
-                msg("Error", "Couldn't open handler folder!");
-            }
+                .is_err()
+        {
+            msg("Error", "Couldn't open handler folder!");
         }
 
-        if ui.button("Remove").clicked() {
-            if yesno(
+        if ui.button("Remove").clicked()
+            && yesno(
                 "Remove handler?",
                 &format!(
                     "Are you sure you want to remove {}?",
                     self.handlers[i].display()
                 ),
-            ) {
-                if let Err(err) = self.handlers[i].remove_handler() {
-                    println!("[partydeck] Failed to remove handler: {}", err);
-                    msg("Error", &format!("Failed to remove handler: {}", err));
-                }
+            )
+        {
+            if let Err(err) = self.handlers[i].remove_handler() {
+                eprintln!("[partydeck] Failed to remove handler: {err}");
+                msg("Error", &format!("Failed to remove handler: {err}"));
+            }
 
-                self.handlers = scan_handlers();
-                if self.handlers.is_empty() {
-                    self.cur_page = MenuPage::Home;
-                }
-                if i >= self.handlers.len() {
-                    self.selected_handler = 0;
-                }
+            self.handlers = scan_handlers();
+            if self.handlers.is_empty() {
+                self.cur_page = MenuPage::Home;
+            }
+            if i >= self.handlers.len() {
+                self.selected_handler = 0;
             }
         }
 
-        if ui.button("Export").clicked() {
-            if let Err(err) = self.handlers[i].export_pd2() {
-                println!("[partydeck] Failed to export handler: {}", err);
-                msg("Error", &format!("Failed to export handler: {}", err));
-            }
+        if ui.button("Export").clicked()
+            && let Some(dest) = pick_pd2_save_path()
+            && let Err(err) = export_pd2(&self.handlers[i], &dest)
+        {
+            eprintln!("[partydeck] Failed to export handler: {err}");
+            msg("Error", &format!("Failed to export handler: {err}"));
         }
     }
 }

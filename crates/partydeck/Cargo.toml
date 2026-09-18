@@ -5,12 +5,6 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[features]
-default = []
-download_deps = ["dep:reqwest", "dep:serde_json", "dep:tar", "dep:bzip2", "dep:sevenz-rust2", "dep:sha2"]
-download_deps_latest = ["download_deps"]
-build_gamescope = []
-
 [dependencies]
 partydeck-comp-proto.workspace = true
 clap.workspace = true
@@ -31,11 +25,3 @@ rfd = "0.15.3"
 steamlocate = "2.0.1"
 x11rb = { version = "0.13.1", default-features = false }
 zip = { version = "5.1.1", features = ["deflate", "deflate64"], default-features = false }
-
-[build-dependencies]
-reqwest = { version = "0.12.15", features = ["blocking", "json"], optional = true }
-serde_json = { version = "1.0.140", optional = true }
-tar = { version = "0.4", optional = true }
-bzip2 = { version = "0.6.1", optional = true }
-sevenz-rust2 = { version = "0.20.2", features = ["util"], default-features = false, optional = true }
-sha2 = { version = "0.10.9", optional = true }

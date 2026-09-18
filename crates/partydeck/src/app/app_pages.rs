@@ -1,16 +1,17 @@
 use super::app::{MenuPage, PartyApp, SettingsPage};
-use super::config::*;
+use super::dialogs::{dir_dialog, file_dialog_relative, msg, pick_png, prompt_text, yesno};
+use super::handler_view;
+use crate::config::*;
 use crate::handler::*;
 use crate::input::*;
+use crate::instance::ProfileChoice;
+use crate::launch::erase_prefixes;
+use crate::monitor::detect_monitors;
 use crate::paths::*;
-use crate::profiles::*;
-use crate::util::*;
-use crate::monitor::get_monitors_errorless;
+use crate::profile::*;
 
-use dialog::DialogBox;
 use eframe::egui::RichText;
 use eframe::egui::{self, Ui};
-use rfd::FileDialog;
 use std::path::PathBuf;
 
 macro_rules! cur_handler {
@@ -69,21 +70,18 @@ impl PartyApp {
         egui::ScrollArea::vertical()
             .max_height(ui.available_height() - 30.0) // Remove lower menue height from avaliable
             .auto_shrink(false)
-            .show(ui, |ui| {
-                match self.settings_page {
-                    SettingsPage::General => self.display_settings_general(ui),
-                    SettingsPage::Proton => self.display_settings_proton(ui),
-                    SettingsPage::Gamescope => self.display_settings_gamescope(ui),
-                }
-        });
-
+            .show(ui, |ui| match self.settings_page {
+                SettingsPage::General => self.display_settings_general(ui),
+                SettingsPage::Proton => self.display_settings_proton(ui),
+                SettingsPage::Gamescope => self.display_settings_gamescope(ui),
+            });
 
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
             ui.horizontal(|ui| {
-                if ui.button("Save Settings").clicked() {
-                    if let Err(e) = save_cfg(&self.options) {
-                        msg("Error", &format!("Couldn't save settings: {}", e));
-                    }
+                if ui.button("Save Settings").clicked()
+                    && let Err(e) = save_cfg(&self.options)
+                {
+                    msg("Error", &format!("Couldn't save settings: {e}"));
                 }
                 if ui.button("Restore Defaults").clicked() {
                     self.options = PartyConfig::default();
@@ -102,24 +100,22 @@ impl PartyApp {
             .auto_shrink(false)
             .show(ui, |ui| {
                 for profile in &self.profiles {
-                    if ui.selectable_value(&mut 0, 1, profile).clicked() {
-                        if let Err(_) = std::process::Command::new("xdg-open")
-                            .arg(PATH_PARTY.join("profiles").join(profile))
+                    if ui.selectable_value(&mut 0, 1, profile).clicked()
+                        && std::process::Command::new("xdg-open")
+                            .arg(profile_dir(profile))
                             .status()
-                        {
-                            msg("Error", "Couldn't open profile directory!");
-                        }
-                    };
+                            .is_err()
+                    {
+                        msg("Error", "Couldn't open profile directory!");
+                    }
                 }
             });
         if ui.button("New").clicked() {
-            if let Some(name) = dialog::Input::new("Enter name (must be alphanumeric):")
-                .title("New Profile")
-                .show()
-                .expect("Could not display dialog box")
-            {
+            if let Some(name) = prompt_text("New Profile", "Enter name (must be alphanumeric):") {
                 if !name.is_empty() && name.chars().all(char::is_alphanumeric) {
-                    create_profile(&name).unwrap();
+                    if let Err(e) = create_profile(&name) {
+                        msg("Error", &format!("Couldn't create profile: {e}"));
+                    }
                 } else {
                     msg("Error", "Invalid name");
                 }
@@ -152,21 +148,19 @@ impl PartyApp {
             ui.label("Version:");
             ui.add(egui::TextEdit::singleline(&mut h.version).desired_width(50.0));
             ui.label("Icon:");
-            ui.add(egui::Image::new(h.icon()).max_width(16.0).corner_radius(2));
-            if h.is_saved_handler() && ui.button("🖼").clicked() {
-                if let Some(file) = FileDialog::new()
-                    .set_title("Choose Icon:")
-                    .set_directory(&*PATH_HOME)
-                    .add_filter("PNG Image", &["png"])
-                    .pick_file()
-                    && let Some(extension) = file.extension()
-                    && extension == "png"
-                {
-                    let dest = h.path_handler.join("icon.png");
-                    if let Err(e) = std::fs::copy(file, dest) {
-                        eprintln!("Failed to copy icon: {}", e);
-                        msg("Error copying icon", &format!("{}", e));
-                    }
+            ui.add(
+                egui::Image::new(handler_view::icon(h))
+                    .max_width(16.0)
+                    .corner_radius(2),
+            );
+            if h.is_saved_handler()
+                && ui.button("🖼").clicked()
+                && let Some(file) = pick_png("Choose Icon:")
+            {
+                let dest = h.path_handler.join("icon.png");
+                if let Err(e) = std::fs::copy(file, dest) {
+                    eprintln!("[partydeck] Failed to copy icon: {e}");
+                    msg("Error copying icon", &format!("{e}"));
                 }
             }
         });
@@ -202,19 +196,19 @@ impl PartyApp {
             ui.checkbox(&mut h.use_mangohud, "Enable MangoHud");
         });
 
-        h.steam_appid = match &self.installed_steamapps[selected_index] {
-            Some(app) => Some(app.app_id),
-            None => None,
-        };
+        h.steam_appid = self
+            .installed_steamapps
+            .get(selected_index)
+            .and_then(|app| app.as_ref().map(|app| app.app_id));
 
-        if h.steam_appid == None {
+        if h.steam_appid.is_none() {
             ui.horizontal(|ui| {
                 ui.label("Game root folder:");
                 ui.add_enabled(false, egui::TextEdit::singleline(&mut h.path_gameroot));
-                if ui.button("🗁").clicked() {
-                    if let Ok(path) = dir_dialog() {
-                        h.path_gameroot = path.to_string_lossy().to_string();
-                    }
+                if ui.button("🗁").clicked()
+                    && let Ok(path) = dir_dialog()
+                {
+                    h.path_gameroot = path.to_string_lossy().to_string();
                 }
             });
         }
@@ -222,12 +216,11 @@ impl PartyApp {
         ui.horizontal(|ui| {
             ui.label("Executable:");
             ui.add_enabled(false, egui::TextEdit::singleline(&mut h.exec));
-            if ui.button("🗁").clicked() {
-                if let Ok(base_path) = h.get_game_rootpath()
-                    && let Ok(path) = file_dialog_relative(&PathBuf::from(base_path))
-                {
-                    h.exec = path.to_string_lossy().to_string();
-                }
+            if ui.button("🗁").clicked()
+                && let Ok(base_path) = h.get_game_rootpath()
+                && let Ok(path) = file_dialog_relative(&PathBuf::from(base_path))
+            {
+                h.exec = path.to_string_lossy().to_string();
             }
         });
 
@@ -272,12 +265,15 @@ impl PartyApp {
                 ui.radio_value(&mut h.runtime, "steamrt4".to_string(), "4.0 (steamrt4)");
             });
         }
-        
-        if h.spec_ver != HANDLER_SPEC_CURRENT_VERSION {
-            if ui.button("Update Handler Specification Version").clicked() {
-                h.spec_ver = HANDLER_SPEC_CURRENT_VERSION;
-                msg("Handler Specification Version Updated", "Remember to save your changes.");
-            }
+
+        if h.spec_ver != HANDLER_SPEC_CURRENT_VERSION
+            && ui.button("Update Handler Specification Version").clicked()
+        {
+            h.spec_ver = HANDLER_SPEC_CURRENT_VERSION;
+            msg(
+                "Handler Specification Version Updated",
+                "Remember to save your changes.",
+            );
         }
 
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
@@ -294,7 +290,7 @@ impl PartyApp {
 
     pub fn display_page_game(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            ui.image(cur_handler!(self).icon());
+            ui.image(handler_view::icon(cur_handler!(self)));
             ui.heading(cur_handler!(self).display());
         });
 
@@ -334,7 +330,7 @@ impl PartyApp {
                 } else {
                     self.instances.clear();
                     self.input_devices = scan_input_devices(&self.options.pad_filter_type);
-                    self.monitors = get_monitors_errorless();
+                    self.monitors = detect_monitors();
                     self.profiles = scan_profiles(true);
                     self.instance_add_dev = None;
                     self.cur_page = MenuPage::Instances;
@@ -382,7 +378,8 @@ impl PartyApp {
 
         ui.horizontal(|ui| {
             ui.add(
-                egui::Image::new(egui::include_image!("../../assets/glyphs/BTN_SOUTH.png")).max_height(12.0),
+                egui::Image::new(egui::include_image!("../../assets/glyphs/BTN_SOUTH.png"))
+                    .max_height(12.0),
             );
             ui.label("[Z]");
             ui.add(
@@ -398,7 +395,8 @@ impl PartyApp {
             ui.add(egui::Separator::default().vertical());
 
             ui.add(
-                egui::Image::new(egui::include_image!("../../assets/glyphs/BTN_EAST.png")).max_height(12.0),
+                egui::Image::new(egui::include_image!("../../assets/glyphs/BTN_EAST.png"))
+                    .max_height(12.0),
             );
             ui.label("[X]");
             let remove_text = match self.instance_add_dev {
@@ -413,22 +411,33 @@ impl PartyApp {
         ui.separator();
 
         let mut devices_to_remove: Vec<(usize, usize)> = Vec::new();
-        for (i, instance) in &mut self.instances.iter_mut().enumerate() {
+        for (i, instance) in self.instances.iter_mut().enumerate() {
             ui.horizontal(|ui| {
                 ui.label(format!("{}", i + 1));
 
                 ui.label("👤");
+                // The dropdown works on indices into self.profiles ("Guest" first).
+                let mut selection = self
+                    .profiles
+                    .iter()
+                    .position(|p| p == instance.profile.label())
+                    .unwrap_or(0);
                 egui::ComboBox::from_id_salt(format!("{i}")).show_index(
                     ui,
-                    &mut instance.profselection,
+                    &mut selection,
                     self.profiles.len(),
                     |i| self.profiles[i].clone(),
                 );
+                instance.profile = self
+                    .profiles
+                    .get(selection)
+                    .map_or(ProfileChoice::Guest, |p| ProfileChoice::from_label(p));
 
-                if self.instance_add_dev == None {
-                    let invitebtn = ui.add(
-                        egui::Button::image_and_text(egui::include_image!("../../assets/glyphs/BTN_NORTH.png"), "[A] Invite New Device")
-                    );
+                if self.instance_add_dev.is_none() {
+                    let invitebtn = ui.add(egui::Button::image_and_text(
+                        egui::include_image!("../../assets/glyphs/BTN_NORTH.png"),
+                        "[A] Invite New Device",
+                    ));
                     if invitebtn.clicked() {
                         self.instance_add_dev = Some(i);
                     }
@@ -464,7 +473,7 @@ impl PartyApp {
             self.remove_device_instance(i, d);
         }
 
-        if self.instances.len() > 0 {
+        if !self.instances.is_empty() {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.horizontal(|ui| {
                     ui.add(
@@ -481,7 +490,10 @@ impl PartyApp {
     }
 
     pub fn display_settings_general(&mut self, ui: &mut Ui) {
-        let check_for_app_updates = ui.checkbox(&mut self.options.check_for_updates, "Check for partydeck updates");
+        let check_for_app_updates = ui.checkbox(
+            &mut self.options.check_for_updates,
+            "Check for partydeck updates",
+        );
         if check_for_app_updates.hovered() {
             self.infotext = "DEFAULT: Enabled\n\nWARNING: CONTACTS GITHUB's SERVERS ON EVERY LAUNCH\nMakes partydeck check online for updates durring each launch, and notfies user when avaliable.".to_string();
         }
@@ -530,7 +542,7 @@ impl PartyApp {
                 self.input_devices = scan_input_devices(&self.options.pad_filter_type);
             }
         });
-        
+
         let profile_unique_dirs_check = ui.checkbox(
             &mut self.options.profile_unique_dirs,
             "Unique per-profile environments",
@@ -557,13 +569,13 @@ impl PartyApp {
 
         ui.separator();
 
-        if ui.button("Open PartyDeck Data Folder").clicked() {
-            if let Err(_) = std::process::Command::new("xdg-open")
-                .arg(PATH_PARTY.clone())
+        if ui.button("Open PartyDeck Data Folder").clicked()
+            && std::process::Command::new("xdg-open")
+                .arg(PATH_PARTY.as_path())
                 .status()
-            {
-                msg("Error", "Couldn't open PartyDeck Data Folder!");
-            }
+                .is_err()
+        {
+            msg("Error", "Couldn't open PartyDeck Data Folder!");
         }
     }
 
@@ -586,30 +598,28 @@ impl PartyApp {
         if proton_separate_pfxs_check.hovered() {
             self.infotext = "DEFAULT: Enabled\n\nRuns each instance in separate Proton prefixes. If unsure, leave this checked. Multiple prefixes takes up more disk space, but generally provides better compatibility and fewer issues with Proton-based games.".to_string();
         }
-        
-        let proton_wow64_check = ui.checkbox(
-            &mut self.options.proton_wow64,
-            "Run Proton in WoW64 mode",
-        );
+
+        let proton_wow64_check =
+            ui.checkbox(&mut self.options.proton_wow64, "Run Proton in WoW64 mode");
         if proton_wow64_check.hovered() {
             self.infotext = "DEFAULT: Enabled\n\nRuns Proton games in the new Wine WoW64 mode. If unsure, leave this checked.".to_string();
         }
-        
-        if ui.button("Erase All Proton Prefix Data").clicked() {
-            if yesno(
+
+        if ui.button("Erase All Proton Prefix Data").clicked()
+            && yesno(
                 "Erase Prefix?",
                 "This will erase all Proton prefixes used by PartyDeck. This shouldn't erase profile/game-specific data, but exercise caution. Are you sure?",
-            ) && PATH_PARTY.join("prefixes").exists()
-            {
-                if let Err(err) = std::fs::remove_dir_all(PATH_PARTY.join("prefixes")) {
-                    msg("Error", &format!("Couldn't erase pfx data: {}", err));
-                } else {
-                    msg("Data Erased", "Proton prefix data successfully erased.");
-                }
+            )
+            && prefixes_dir().exists()
+        {
+            if let Err(err) = erase_prefixes() {
+                msg("Error", &format!("Couldn't erase pfx data: {err}"));
+            } else {
+                msg("Data Erased", "Proton prefix data successfully erased.");
             }
         }
     }
-    
+
     pub fn display_settings_gamescope(&mut self, ui: &mut Ui) {
         let gamescope_lowres_fix_check = ui.checkbox(
             &mut self.options.gamescope_fix_lowres,
