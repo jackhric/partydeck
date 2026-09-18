@@ -12,6 +12,7 @@ use smithay::reexports::wayland_server::DisplayHandle;
 use smithay::render_elements;
 use smithay::utils::{Physical, Point, Rectangle};
 
+use crate::backend::Backend;
 use crate::layout::fit;
 use crate::state::CompState;
 use telemetry::FrameRecord;
@@ -103,30 +104,28 @@ pub fn redraw(state: &mut CompState, display_handle: &mut DisplayHandle, tick: I
         rendered.push(window.clone());
     }
 
-    let states = {
-        let (renderer, mut framebuffer) = match backend.winit.bind() {
-            Ok(bound) => bound,
-            Err(e) => {
-                eprintln!("[comp] bind failed, skipping frame: {e}");
-                return;
-            }
-        };
-        match backend.damage_tracker.render_output::<CompElement, _>(
-            renderer,
-            &mut framebuffer,
-            0,
-            &elements,
-            CLEAR_COLOR,
-        ) {
-            Ok(result) => result.states,
-            Err(e) => {
-                eprintln!("[comp] render_output failed, skipping frame: {e}");
-                return;
-            }
+    let composited: Result<_, String> = (|| {
+        let (renderer, mut framebuffer) = backend
+            .winit
+            .bind()
+            .map_err(|e| format!("bind failed: {e}"))?;
+        let result = backend
+            .damage_tracker
+            .render_output::<CompElement, _>(renderer, &mut framebuffer, 0, &elements, CLEAR_COLOR)
+            .map_err(|e| format!("render_output failed: {e}"))?;
+        Ok(result.states)
+    })();
+    let states = match composited {
+        Ok(states) => states,
+        Err(e) => {
+            eprintln!("[comp] {e}, skipping frame");
+            skip_frame(display_handle, backend);
+            return;
         }
     };
     if let Err(e) = backend.winit.submit(Some(&[Rectangle::from_size(size)])) {
         eprintln!("[comp] submit failed, skipping frame: {e}");
+        skip_frame(display_handle, backend);
         return;
     }
     let submit_done = start_time.elapsed();
@@ -162,5 +161,12 @@ pub fn redraw(state: &mut CompState, display_handle: &mut DisplayHandle, tick: I
     popups.cleanup();
     let _ = display_handle.flush_clients();
 
+    backend.winit.window().request_redraw();
+}
+
+// A skipped frame must still re-arm the redraw request, or the output stays
+// frozen until the host resizes the window.
+fn skip_frame(display_handle: &mut DisplayHandle, backend: &mut Backend) {
+    let _ = display_handle.flush_clients();
     backend.winit.window().request_redraw();
 }

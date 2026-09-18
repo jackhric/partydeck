@@ -43,6 +43,11 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
+      - name: TypeScript bindings are current
+        run: |
+          cargo test -p partydeck-comp-proto --features ts
+          git diff --exit-code -- overlay/ui/src/generated
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10

@@ -80,7 +80,8 @@ pub fn init(
                 // is neither dropped nor replaced while borrowed; we only dispatch.
                 let result = unsafe { display.get_mut().dispatch_clients(&mut data.state) };
                 if let Err(e) = result {
-                    eprintln!("[comp] dispatch_clients failed: {e}");
+                    eprintln!("[comp] dispatch_clients failed, shutting down: {e}");
+                    data.state.loop_signal.stop();
                 }
                 Ok(PostAction::Continue)
             },

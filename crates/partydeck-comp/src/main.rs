@@ -37,8 +37,15 @@ struct Args {
     #[arg(long, default_value = "1280x800", value_parser = parse_size)]
     size: (u32, u32),
     /// Overlay split-line style: off | faint | medium | strong.
-    #[arg(long, default_value_t = BorderStyle::Faint)]
-    border: BorderStyle,
+    #[arg(long, default_value = "faint")]
+    border: String,
+}
+
+fn border_style(s: &str) -> BorderStyle {
+    s.parse().unwrap_or_else(|_| {
+        eprintln!("[comp] unknown --border {s:?}, using faint");
+        BorderStyle::Faint
+    })
 }
 
 fn parse_size(s: &str) -> Result<(u32, u32), String> {
@@ -77,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         display,
         &args.socket_prefix,
         layout,
-        args.border,
+        border_style(&args.border),
         backend,
     )?;
     let mut data = CalloopData {

@@ -2,6 +2,7 @@ import type { BorderStyle, PixelRect, SlotState, State } from "./generated/proto
 
 export type { State as PdState, SlotState as PdSlot, PixelRect as PdRect };
 
+// Tracks PROTOCOL_VERSION in crates/comp-proto/src/lib.rs; ts-rs does not export consts.
 export const PROTO_VERSION = 1;
 
 export const EMPTY_STATE: State = {
@@ -45,6 +46,8 @@ export function createPdStore(initial: State = EMPTY_STATE) {
     },
     getSnapshot: () => current,
     push(state: State) {
+      // A malformed document must not unmount the page.
+      if (!Array.isArray(state?.slots)) return;
       current = state;
       for (const fn of listeners) fn();
     },

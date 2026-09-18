@@ -36,9 +36,10 @@ bundle). Append `?nopanel` to hide the panel. Everything under
 `overlay/ui/src/dev/` is excluded from the production build.
 
 `overlay/ui/src/state.ts` holds the wire types (`PdState`, `PdSlot`, `PdRect`),
-which mirror `state_json` in `crates/partydeck-comp/src/control.rs`, and the
-store that `window.__pdState` feeds. `overlay/ui/src/generated/` is produced
-from the proto definitions and must not be edited by hand.
+re-exported from `overlay/ui/src/generated/proto.ts`, and the store that
+`window.__pdState` feeds. The generated file comes from the types in
+`crates/comp-proto/src/state.rs`; regenerate it with
+`cargo test -p partydeck-comp-proto --features ts` and never edit it by hand.
 
 ## Building the shell and the bundle
 

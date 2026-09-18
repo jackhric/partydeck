@@ -19,15 +19,20 @@ static size_t g_last_len;
 void ctl_init(void) {
     const char* explicit_path = getenv(CTL_SOCKET_ENV);
     if (explicit_path && *explicit_path) {
-        snprintf(g_path, sizeof(g_path), "%s", explicit_path);
+        if (snprintf(g_path, sizeof(g_path), "%s", explicit_path) >= (int)sizeof(g_path)) {
+            fprintf(stderr, "cef-overlay: %s is too long for a socket path\n", CTL_SOCKET_ENV);
+            g_path[0] = 0;
+        }
         return;
     }
     // Older launchers only set WAYLAND_DISPLAY=<prefix>-overlay.
     const char* wl = getenv("WAYLAND_DISPLAY");
     const char* rt = getenv("XDG_RUNTIME_DIR");
     const char* suffix = wl ? strstr(wl, WL_OVERLAY_SUFFIX) : NULL;
-    if (rt && suffix) {
-        snprintf(g_path, sizeof(g_path), "%s/%.*s" CTL_SOCKET_SUFFIX, rt, (int)(suffix - wl), wl);
+    if (rt && suffix
+        && snprintf(g_path, sizeof(g_path), "%s/%.*s" CTL_SOCKET_SUFFIX, rt, (int)(suffix - wl), wl)
+               >= (int)sizeof(g_path)) {
+        g_path[0] = 0;
     }
     if (!g_path[0]) {
         fprintf(stderr, "cef-overlay: no control socket (set %s); state will not be pushed\n",

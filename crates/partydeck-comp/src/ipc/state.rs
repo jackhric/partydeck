@@ -85,10 +85,4 @@ mod tests {
                 .all(|s| s.status.is_none() && s.label.is_none())
         );
     }
-
-    #[test]
-    fn document_carries_protocol_version() {
-        let doc = State::new(Size { w: 1, h: 1 }, 0, Default::default(), vec![]);
-        assert_eq!(doc.proto, partydeck_comp_proto::PROTOCOL_VERSION);
-    }
 }

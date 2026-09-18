@@ -1,2 +1,3 @@
 #!/bin/bash
-./partydeck --fullscreen > log.txt
+cd "$(dirname "$0")"
+./partydeck --fullscreen > log.txt 2>&1
