@@ -25,6 +25,9 @@ pub struct Cli {
     /// Start the GUI in fullscreen mode.
     #[arg(long, global = true)]
     pub fullscreen: bool,
+    /// Ignored. Launcher scripts from before the compositor still pass it.
+    #[arg(long, global = true, hide = true)]
+    pub kwin: bool,
     /// Execute the specified executable in splitscreen instead of the GUI.
     #[arg(long)]
     pub exec: Option<String>,

@@ -52,7 +52,6 @@ fn config_show_prints_default_json() {
 #[test]
 fn config_set_json_round_trips() {
     let home = scratch_home("set");
-    std::fs::create_dir_all(home.join("share/partydeck")).unwrap();
     let out = partydeck(
         &home,
         &[

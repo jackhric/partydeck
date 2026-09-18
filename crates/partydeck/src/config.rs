@@ -33,6 +33,8 @@ pub struct PartyConfig {
     pub allow_multiple_instances_on_same_device: bool,
     pub profile_unique_dirs: bool,
     pub disable_mount_gamedirs: bool,
+    // Opt-in: a settings file without the key means off, unlike the other defaults.
+    #[serde(default)]
     pub check_for_updates: bool,
     pub debug_game_logs: bool,
 }
@@ -76,6 +78,9 @@ pub fn load_cfg_from(path: &Path) -> PartyConfig {
 }
 
 pub fn save_cfg_to(path: &Path, config: &PartyConfig) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let file = File::create(path)?;
     serde_json::to_writer_pretty(file, config)?;
     Ok(())
@@ -132,5 +137,13 @@ mod tests {
             PadFilterType::from_str("only-steam-input", false),
             Ok(PadFilterType::OnlySteamInput)
         );
+    }
+
+    #[test]
+    fn missing_keys_use_defaults_except_update_check() {
+        let cfg: PartyConfig = serde_json::from_str("{}").unwrap();
+        assert!(!cfg.check_for_updates);
+        assert!(cfg.kbm_support);
+        assert_eq!(cfg.proton_version, PartyConfig::default().proton_version);
     }
 }

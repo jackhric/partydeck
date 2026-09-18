@@ -15,6 +15,15 @@ pub struct Monitor {
 }
 
 impl Monitor {
+    pub fn new(name: &str, width: u32, height: u32) -> Self {
+        Self {
+            name: name.to_string(),
+            width,
+            height,
+            size_overridden: false,
+        }
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }

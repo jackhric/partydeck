@@ -10,7 +10,7 @@ use crate::error::Result;
 use crate::handler::Handler;
 use crate::input::{DeviceInfo, DeviceType, scan_input_devices};
 use crate::instance::{Instance, ProfileChoice};
-use crate::monitor::{Monitor, detect_monitors};
+use crate::monitor::Monitor;
 use crate::profile::{GUEST_NAMES, guest_dir_name, scan_profiles};
 
 const MIN_INSTANCE_HEIGHT: u32 = 600;
@@ -78,7 +78,7 @@ impl LaunchRequest {
             Some(path) => layout_from_file(path, players.len())?,
             None => default_layout(&cfg.layout_preset, players.len()),
         };
-        let monitor = detect_monitors().swap_remove(0);
+        let monitor = Monitor::new("test", 1920, 1080);
         Ok(LaunchRequest::new(
             handler, instances, devices, cfg, monitor, layout,
         ))
@@ -331,7 +331,7 @@ mod tests {
         let mut instances = vec![Instance::new(vec![0]), Instance::new(vec![1])];
         let cfg = PartyConfig::default();
         let layout = presets::halves_h();
-        let monitor = detect_monitors().swap_remove(0);
+        let monitor = Monitor::new("test", 1920, 1080);
         set_instance_resolutions_from_layout(&mut instances, &monitor, &layout, &cfg);
         assert!(instances.iter().all(|i| i.height >= MIN_INSTANCE_HEIGHT));
         assert!(instances.iter().all(|i| i.width > 0));

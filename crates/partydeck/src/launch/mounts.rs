@@ -81,6 +81,13 @@ pub fn fuse_overlayfs_mount_gamedirs(h: &Handler, instances: &[Instance]) -> Res
         let upperdir = profile_dir(&instance.profname)
             .join("gamesaves")
             .join(&gamename);
+        if is_mount_point(&mount) {
+            return Err(format!(
+                "{} is still mounted from a previous session. Run: umount -l {0}",
+                mount.display()
+            )
+            .into());
+        }
         std::fs::create_dir_all(&mount)?;
         std::fs::create_dir_all(&workdir)?;
 
