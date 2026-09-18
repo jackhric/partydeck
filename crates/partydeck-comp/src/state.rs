@@ -1,62 +1,61 @@
 use std::ffi::OsString;
-use std::sync::Arc;
+use std::time::Instant;
 
 use smithay::backend::renderer::ImportMemWl;
 use smithay::desktop::{PopupManager, Space, Window, WindowSurfaceType};
 use smithay::input::{Seat, SeatState};
-use smithay::reexports::calloop::generic::Generic;
-use smithay::reexports::calloop::{EventLoop, Interest, LoopSignal, Mode, PostAction};
-use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
+use smithay::reexports::calloop::{EventLoop, LoopSignal};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
-use smithay::utils::{Clock, Logical, Monotonic, Point};
-use smithay::wayland::compositor::{CompositorClientState, CompositorState};
+use smithay::utils::{Clock, Logical, Monotonic, Physical, Point, Size};
+use smithay::wayland::compositor::CompositorState;
 use smithay::wayland::output::OutputManagerState;
 use smithay::wayland::presentation::PresentationState;
 use smithay::wayland::selection::data_device::DataDeviceState;
-use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 use smithay::wayland::shell::xdg::XdgShellState;
+use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 use smithay::wayland::shm::ShmState;
-use smithay::wayland::socket::ListeningSocketSource;
 use smithay::wayland::viewporter::ViewporterState;
 
-use partydeck_comp_proto::layout::Layout;
+use partydeck_comp_proto::layout::{Layout, PixelRect};
+use partydeck_comp_proto::state::{BorderStyle, SlotStatus};
 
 use crate::backend::Backend;
-use crate::CalloopData;
+use crate::render::telemetry::Telemetry;
+use crate::{CalloopData, wayland};
 
-#[derive(Clone)]
-pub struct SlotStatus {
-    pub status: String,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotInfo {
+    pub status: SlotStatus,
     pub label: Option<String>,
     pub avatar: Option<String>,
     pub logo: Option<String>,
 }
 
+// Held only so the Wayland globals stay advertised for the compositor's
+// lifetime; nothing reads them back.
+#[allow(dead_code)]
+pub struct Globals {
+    pub xdg_decoration: XdgDecorationState,
+    pub presentation: PresentationState,
+    pub viewporter: ViewporterState,
+    pub output_manager: OutputManagerState,
+}
+
 pub struct CompState {
-    pub start_time: std::time::Instant,
-    pub frames: u32,
+    pub start_time: Instant,
     pub frame_seq: u64,
-    pub child_commits: u32,
-    pub commits_since_composite: u32,
-    pub commit_gaps: [u32; 3],
-    pub last_commit_at: Option<std::time::Instant>,
-    pub last_fps_report: std::time::Instant,
-    pub last_composite_at: std::time::Instant,
-    pub legacy_ack: bool,
-    pub frame_log: Option<crate::render::FrameLog>,
+    pub last_composite_at: Instant,
+    pub host_ready: bool,
+    pub telemetry: Telemetry,
     pub socket_names: Vec<OsString>,
     pub display_handle: DisplayHandle,
 
-    pub host_ready: bool,
     pub layout: Layout,
-    /// Split-line style passed to the overlay: "off" | "faint" | "medium" | "strong".
-    pub border_style: String,
+    pub border: BorderStyle,
     pub slot_windows: Vec<Option<Window>>,
     pub overlay_window: Option<Window>,
-    pub slot_status: Vec<Option<SlotStatus>>,
-    pub controller_disconnected: Vec<bool>,
-    pub clear_color: [f32; 4],
+    pub slot_info: Vec<Option<SlotInfo>>,
 
     pub space: Space<Window>,
     pub loop_signal: LoopSignal,
@@ -65,16 +64,12 @@ pub struct CompState {
     pub clock: Clock<Monotonic>,
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
-    pub xdg_decoration_state: XdgDecorationState,
-    pub presentation_state: PresentationState,
-    pub viewporter_state: ViewporterState,
     pub shm_state: ShmState,
-    pub output_manager_state: OutputManagerState,
     pub seat_state: SeatState<CompState>,
     pub data_device_state: DataDeviceState,
     pub popups: PopupManager,
-
     pub seat: Seat<Self>,
+    pub _globals: Globals,
 }
 
 impl CompState {
@@ -83,190 +78,101 @@ impl CompState {
         display: Display<Self>,
         socket_prefix: &str,
         layout: Layout,
-        border_style: String,
+        border: BorderStyle,
         mut backend: Backend,
-    ) -> Self {
-        let start_time = std::time::Instant::now();
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let start_time = Instant::now();
         let dh = display.handle();
 
         let clock = Clock::new();
         let compositor_state = CompositorState::new::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
-        let xdg_decoration_state = XdgDecorationState::new::<Self>(&dh);
-        // gamescope's Vulkan swapchain hard-requires wp_presentation; without it
-        // the child falls back to X11 and aborts.
-        let presentation_state = PresentationState::new::<Self>(&dh, clock.id() as u32);
-        let viewporter_state = ViewporterState::new::<Self>(&dh);
         let mut shm_state = ShmState::new::<Self>(&dh, vec![]);
         shm_state.update_formats(backend.winit.renderer().shm_formats());
-        let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let mut seat_state = SeatState::new();
         let data_device_state = DataDeviceState::new::<Self>(&dh);
-        let popups = PopupManager::default();
+        let globals = Globals {
+            xdg_decoration: XdgDecorationState::new::<Self>(&dh),
+            // gamescope's Vulkan swapchain hard-requires wp_presentation; without it
+            // the child falls back to X11 and aborts.
+            presentation: PresentationState::new::<Self>(&dh, clock.id() as u32),
+            viewporter: ViewporterState::new::<Self>(&dh),
+            output_manager: OutputManagerState::new_with_xdg_output::<Self>(&dh),
+        };
 
         let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "partydeck-comp");
-        seat.add_keyboard(Default::default(), 200, 25).unwrap();
+        seat.add_keyboard(Default::default(), 200, 25)
+            .map_err(|e| format!("failed to add keyboard: {e:?}"))?;
         seat.add_pointer();
 
         let mut space = Space::default();
         space.map_output(&backend.output, (0, 0));
 
-        let socket_names = Self::init_wayland_listeners(display, event_loop, socket_prefix, layout.slots.len());
-        let loop_signal = event_loop.get_signal();
+        let players = layout.slots.len();
+        let socket_names = wayland::sockets::init(display, event_loop, socket_prefix, players)?;
 
-        let clear_color = layout
-            .background
-            .as_deref()
-            .and_then(parse_color)
-            .unwrap_or([0.0, 0.0, 0.0, 1.0]);
-        let slot_windows = vec![None; layout.slots.len()];
-        let slot_status = vec![None; layout.slots.len()];
-        let controller_disconnected = vec![false; layout.slots.len()];
-
-        let legacy_ack = std::env::var("PARTYDECK_COMP_LEGACY_ACK").is_ok_and(|v| v == "1");
-        if legacy_ack {
-            eprintln!("[comp] legacy on-commit present acks enabled");
-        }
-        let frame_log =
-            std::env::var_os("PARTYDECK_COMP_FRAME_LOG").and_then(crate::render::FrameLog::open);
-
-        Self {
+        Ok(Self {
             start_time,
-            frames: 0,
             frame_seq: 0,
-            child_commits: 0,
-            commits_since_composite: 0,
-            commit_gaps: [0; 3],
-            last_commit_at: None,
-            last_fps_report: start_time,
             last_composite_at: start_time,
-            legacy_ack,
-            frame_log,
+            host_ready: true,
+            telemetry: Telemetry::new(),
+            socket_names,
             display_handle: dh,
 
-            host_ready: true,
             layout,
-            border_style,
-            slot_windows,
+            border,
+            slot_windows: vec![None; players],
             overlay_window: None,
-            slot_status,
-            controller_disconnected,
-            clear_color,
+            slot_info: vec![None; players],
 
             space,
-            loop_signal,
-            socket_names,
+            loop_signal: event_loop.get_signal(),
             backend,
 
             clock,
             compositor_state,
             xdg_shell_state,
-            xdg_decoration_state,
-            presentation_state,
-            viewporter_state,
             shm_state,
-            output_manager_state,
             seat_state,
             data_device_state,
-            popups,
+            popups: PopupManager::default(),
             seat,
-        }
-    }
-
-    fn init_wayland_listeners(
-        display: Display<CompState>,
-        event_loop: &mut EventLoop<CalloopData>,
-        prefix: &str,
-        players: usize,
-    ) -> Vec<OsString> {
-        let loop_handle = event_loop.handle();
-        let mut names = Vec::with_capacity(players);
-
-        for slot in 0..players.max(1) {
-            let name = format!("{prefix}-p{slot}");
-            let listening_socket = ListeningSocketSource::with_name(&name)
-                .unwrap_or_else(|e| panic!("failed to bind wayland socket {name}: {e}"));
-            names.push(listening_socket.socket_name().to_os_string());
-
-            loop_handle
-                .insert_source(listening_socket, move |client_stream, _, state| {
-                    state
-                        .display_handle
-                        .insert_client(
-                            client_stream,
-                            Arc::new(ClientState { slot: Some(slot), ..Default::default() }),
-                        )
-                        .unwrap();
-                })
-                .expect("failed to init the wayland event source");
-        }
-
-        // HUD/menu renderers connect here; their toplevel composites above
-        // every slot (see slots::map_toplevel) and they opt out of input via
-        // an empty input region client-side.
-        let overlay_name = format!("{prefix}-overlay");
-        let overlay_socket = ListeningSocketSource::with_name(&overlay_name)
-            .unwrap_or_else(|e| panic!("failed to bind wayland socket {overlay_name}: {e}"));
-        names.push(overlay_socket.socket_name().to_os_string());
-        loop_handle
-            .insert_source(overlay_socket, move |client_stream, _, state| {
-                state
-                    .display_handle
-                    .insert_client(
-                        client_stream,
-                        Arc::new(ClientState { is_overlay: true, ..Default::default() }),
-                    )
-                    .unwrap();
-            })
-            .expect("failed to init the wayland event source");
-
-        loop_handle
-            .insert_source(
-                Generic::new(display, Interest::READ, Mode::Level),
-                |_, display, state| {
-                    // Safety: we don't drop the display
-                    unsafe {
-                        display.get_mut().dispatch_clients(&mut state.state).unwrap();
-                    }
-                    Ok(PostAction::Continue)
-                },
-            )
-            .unwrap();
-
-        names
-    }
-
-    pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
-        self.space.element_under(pos).and_then(|(window, location)| {
-            window
-                .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
-                .map(|(s, p)| (s, (p + location).to_f64()))
+            _globals: globals,
         })
     }
-}
 
-#[derive(Default)]
-pub struct ClientState {
-    pub slot: Option<usize>,
-    pub is_overlay: bool,
-    pub compositor_state: CompositorClientState,
-}
-
-fn parse_color(s: &str) -> Option<[f32; 4]> {
-    let hex = s.strip_prefix('#')?;
-    if hex.len() != 6 {
-        return None;
+    pub fn output_size(&self) -> Size<i32, Physical> {
+        self.backend.winit.window_size()
     }
-    let v = u32::from_str_radix(hex, 16).ok()?;
-    Some([
-        ((v >> 16) & 0xff) as f32 / 255.0,
-        ((v >> 8) & 0xff) as f32 / 255.0,
-        (v & 0xff) as f32 / 255.0,
-        1.0,
-    ])
+
+    pub fn slot_rects(&self) -> Vec<PixelRect> {
+        let size = self.output_size();
+        self.layout
+            .resolve(size.w.max(1) as u32, size.h.max(1) as u32)
+    }
+
+    pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
+        self.space
+            .elements()
+            .find(|w| window_has_surface(w, surface))
+            .cloned()
+    }
+
+    pub fn surface_under(
+        &self,
+        pos: Point<f64, Logical>,
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+        self.space
+            .element_under(pos)
+            .and_then(|(window, location)| {
+                window
+                    .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
+                    .map(|(s, p)| (s, (p + location).to_f64()))
+            })
+    }
 }
 
-impl ClientData for ClientState {
-    fn initialized(&self, _client_id: ClientId) {}
-    fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {}
+pub fn window_has_surface(window: &Window, surface: &WlSurface) -> bool {
+    window.toplevel().is_some_and(|t| t.wl_surface() == surface)
 }

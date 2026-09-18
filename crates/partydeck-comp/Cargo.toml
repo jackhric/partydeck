@@ -5,12 +5,14 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# Frame CSV log (PARTYDECK_COMP_FRAME_LOG), fps counters and the legacy
+# on-commit present ack (PARTYDECK_COMP_LEGACY_ACK=1). Debug builds only.
+telemetry = []
+
 [dependencies]
 partydeck-comp-proto.workspace = true
 clap.workspace = true
 serde_json.workspace = true
 smithay = { version = "=0.7.0", default-features = false, features = ["backend_winit", "backend_egl", "backend_drm", "renderer_gl", "wayland_frontend", "desktop"] }
-
-[dev-dependencies]
-wayland-client = "0.31"
-wayland-protocols = { version = "0.32", features = ["client"] }

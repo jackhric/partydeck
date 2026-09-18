@@ -1,3 +1,4 @@
+pub mod steam;
 pub mod winit;
 
 use smithay::backend::renderer::damage::OutputDamageTracker;

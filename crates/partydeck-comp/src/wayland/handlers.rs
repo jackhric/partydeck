@@ -1,9 +1,7 @@
 use smithay::backend::allocator::dmabuf::Dmabuf;
-use smithay::backend::renderer::utils::on_commit_buffer_handler;
 use smithay::backend::renderer::ImportDma;
-use smithay::desktop::{
-    find_popup_root_surface, get_popup_toplevel_coords, PopupKind, PopupManager, Space, Window,
-};
+use smithay::backend::renderer::utils::on_commit_buffer_handler;
+use smithay::desktop::PopupKind;
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1;
 use smithay::reexports::wayland_server::protocol::{wl_buffer, wl_seat, wl_surface::WlSurface};
@@ -11,16 +9,16 @@ use smithay::reexports::wayland_server::{Client, Resource};
 use smithay::utils::Serial;
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
-    get_parent, is_sync_subsurface, with_states, CompositorClientState, CompositorHandler,
-    CompositorState,
+    CompositorClientState, CompositorHandler, CompositorState, get_parent, is_sync_subsurface,
+    with_states,
 };
 use smithay::wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier};
 use smithay::wayland::output::OutputHandler;
-use smithay::wayland::selection::data_device::{
-    set_data_device_focus, ClientDndGrabHandler, DataDeviceHandler, DataDeviceState,
-    ServerDndGrabHandler,
-};
 use smithay::wayland::selection::SelectionHandler;
+use smithay::wayland::selection::data_device::{
+    ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
+    set_data_device_focus,
+};
 use smithay::wayland::shell::xdg::decoration::XdgDecorationHandler;
 use smithay::wayland::shell::xdg::{
     PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
@@ -33,7 +31,10 @@ use smithay::{
     delegate_xdg_decoration, delegate_xdg_shell,
 };
 
-use crate::state::{ClientState, CompState};
+use super::{ClientState, popups};
+use crate::layout::slots;
+use crate::render::feedback;
+use crate::state::CompState;
 
 impl CompositorHandler for CompState {
     fn compositor_state(&mut self) -> &mut CompositorState {
@@ -41,39 +42,48 @@ impl CompositorHandler for CompState {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
-        &client.get_data::<ClientState>().unwrap().compositor_state
+        &client
+            .get_data::<ClientState>()
+            .expect("clients are created with ClientState")
+            .compositor_state
     }
 
     fn commit(&mut self, surface: &WlSurface) {
-        self.child_commits += 1;
-        self.commits_since_composite += 1;
+        self.telemetry.note_surface_commit();
         on_commit_buffer_handler::<Self>(surface);
         if !is_sync_subsurface(surface) {
             let mut root = surface.clone();
             while let Some(parent) = get_parent(&root) {
                 root = parent;
             }
-            let window = self
-                .space
-                .elements()
-                .find(|w| w.toplevel().unwrap().wl_surface() == &root)
-                .cloned();
-            match window {
+            match self.window_for_surface(&root) {
                 Some(window) => {
                     window.on_commit();
-                    crate::slots::position_on_commit(self, &window);
-                    crate::render::note_commit(self);
-                    if self.legacy_ack {
-                        crate::render::ack_present(self, &window);
+                    slots::position_on_commit(self, &window);
+                    self.telemetry.note_window_commit();
+                    if self.telemetry.legacy_ack() {
+                        feedback::ack_present(self, &window);
                     }
                 }
                 // Surfaces we never composite must not keep feedback pending:
                 // nested gamescope's present_wait deadlocks on it.
-                None => crate::render::discard_feedback(self, &root),
+                None => feedback::discard(self, &root),
             }
-        };
+        }
 
-        handle_commit(&mut self.popups, &self.space, surface);
+        if let Some(window) = self.window_for_surface(surface) {
+            let initial_configure_sent = with_states(surface, |states| {
+                states
+                    .data_map
+                    .get::<XdgToplevelSurfaceData>()
+                    .and_then(|d| d.lock().ok())
+                    .is_none_or(|d| d.initial_configure_sent)
+            });
+            if !initial_configure_sent && let Some(toplevel) = window.toplevel() {
+                toplevel.send_configure();
+            }
+        }
+        popups::on_commit(self, surface);
     }
 }
 delegate_compositor!(CompState);
@@ -98,7 +108,12 @@ impl SeatHandler for CompState {
         &mut self.seat_state
     }
 
-    fn cursor_image(&mut self, _seat: &Seat<Self>, _image: smithay::input::pointer::CursorImageStatus) {}
+    fn cursor_image(
+        &mut self,
+        _seat: &Seat<Self>,
+        _image: smithay::input::pointer::CursorImageStatus,
+    ) {
+    }
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
         let dh = &self.display_handle;
@@ -134,29 +149,34 @@ impl XdgShellHandler for CompState {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
-        crate::slots::map_toplevel(self, surface);
+        slots::map_toplevel(self, surface);
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
-        crate::slots::handle_toplevel_destroyed(self, surface);
+        slots::unmap_toplevel(self, &surface);
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
-        self.unconstrain_popup(&surface);
+        popups::unconstrain(self, &surface);
         let _ = self.popups.track_popup(PopupKind::Xdg(surface));
     }
 
-    fn reposition_request(&mut self, surface: PopupSurface, positioner: PositionerState, token: u32) {
+    fn reposition_request(
+        &mut self,
+        surface: PopupSurface,
+        positioner: PositionerState,
+        token: u32,
+    ) {
         surface.with_pending_state(|state| {
-            let geometry = positioner.get_geometry();
-            state.geometry = geometry;
+            state.geometry = positioner.get_geometry();
             state.positioner = positioner;
         });
-        self.unconstrain_popup(&surface);
+        popups::unconstrain(self, &surface);
         surface.send_repositioned(token);
     }
 
-    fn move_request(&mut self, _surface: ToplevelSurface, _seat: wl_seat::WlSeat, _serial: Serial) {}
+    fn move_request(&mut self, _surface: ToplevelSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
+    }
 
     fn grab(&mut self, _surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {}
 }
@@ -167,8 +187,19 @@ impl DmabufHandler for CompState {
         &mut self.backend.dmabuf_state.0
     }
 
-    fn dmabuf_imported(&mut self, _global: &DmabufGlobal, dmabuf: Dmabuf, notifier: ImportNotifier) {
-        if self.backend.winit.renderer().import_dmabuf(&dmabuf, None).is_ok() {
+    fn dmabuf_imported(
+        &mut self,
+        _global: &DmabufGlobal,
+        dmabuf: Dmabuf,
+        notifier: ImportNotifier,
+    ) {
+        if self
+            .backend
+            .winit
+            .renderer()
+            .import_dmabuf(&dmabuf, None)
+            .is_ok()
+        {
             let _ = notifier.successful::<CompState>();
         } else {
             notifier.failed();
@@ -178,6 +209,15 @@ impl DmabufHandler for CompState {
 delegate_dmabuf!(CompState);
 
 // Children render inside grid slots; client-side decorations are never wanted.
+fn force_server_side(toplevel: &ToplevelSurface) {
+    toplevel.with_pending_state(|state| {
+        state.decoration_mode = Some(zxdg_toplevel_decoration_v1::Mode::ServerSide);
+    });
+    if toplevel.is_initial_configure_sent() {
+        toplevel.send_pending_configure();
+    }
+}
+
 impl XdgDecorationHandler for CompState {
     fn new_decoration(&mut self, toplevel: ToplevelSurface) {
         toplevel.with_pending_state(|state| {
@@ -185,83 +225,16 @@ impl XdgDecorationHandler for CompState {
         });
     }
 
-    fn request_mode(&mut self, toplevel: ToplevelSurface, _mode: zxdg_toplevel_decoration_v1::Mode) {
-        toplevel.with_pending_state(|state| {
-            state.decoration_mode = Some(zxdg_toplevel_decoration_v1::Mode::ServerSide);
-        });
-        if toplevel.is_initial_configure_sent() {
-            toplevel.send_pending_configure();
-        }
+    fn request_mode(
+        &mut self,
+        toplevel: ToplevelSurface,
+        _mode: zxdg_toplevel_decoration_v1::Mode,
+    ) {
+        force_server_side(&toplevel);
     }
 
     fn unset_mode(&mut self, toplevel: ToplevelSurface) {
-        toplevel.with_pending_state(|state| {
-            state.decoration_mode = Some(zxdg_toplevel_decoration_v1::Mode::ServerSide);
-        });
-        if toplevel.is_initial_configure_sent() {
-            toplevel.send_pending_configure();
-        }
+        force_server_side(&toplevel);
     }
 }
 delegate_xdg_decoration!(CompState);
-
-pub fn handle_commit(popups: &mut PopupManager, space: &Space<Window>, surface: &WlSurface) {
-    if let Some(window) = space
-        .elements()
-        .find(|w| w.toplevel().unwrap().wl_surface() == surface)
-        .cloned()
-    {
-        let initial_configure_sent = with_states(surface, |states| {
-            states
-                .data_map
-                .get::<XdgToplevelSurfaceData>()
-                .unwrap()
-                .lock()
-                .unwrap()
-                .initial_configure_sent
-        });
-
-        if !initial_configure_sent {
-            window.toplevel().unwrap().send_configure();
-        }
-    }
-
-    popups.commit(surface);
-    if let Some(popup) = popups.find_popup(surface) {
-        match popup {
-            PopupKind::Xdg(ref xdg) => {
-                if !xdg.is_initial_configure_sent() {
-                    xdg.send_configure().expect("initial configure failed");
-                }
-            }
-            PopupKind::InputMethod(ref _input_method) => {}
-        }
-    }
-}
-
-impl CompState {
-    fn unconstrain_popup(&self, popup: &PopupSurface) {
-        let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else {
-            return;
-        };
-        let Some(window) = self
-            .space
-            .elements()
-            .find(|w| w.toplevel().unwrap().wl_surface() == &root)
-        else {
-            return;
-        };
-
-        let output = self.space.outputs().next().unwrap();
-        let output_geo = self.space.output_geometry(output).unwrap();
-        let window_geo = self.space.element_geometry(window).unwrap();
-
-        let mut target = output_geo;
-        target.loc -= get_popup_toplevel_coords(&PopupKind::Xdg(popup.clone()));
-        target.loc -= window_geo.loc;
-
-        popup.with_pending_state(|state| {
-            state.geometry = state.positioner.get_unconstrained_geometry(target);
-        });
-    }
-}
