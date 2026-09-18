@@ -1,31 +1,13 @@
 import { useSyncExternalStore } from "react";
 import DisconnectedOverlay from "./DisconnectedOverlay";
+import { interiorEdges } from "./layout";
 import SlotCover from "./SlotCover";
 import { borderColor, pdStore } from "./state";
-import type { PdRect } from "./state";
-
-// An edge is drawn only where it abuts another cell (interior split line), never
-// on the screen-facing outer edge. Two rects share an edge when their boundary
-// lines coincide and they overlap along the perpendicular axis.
-function interiorEdges(rect: PdRect, others: PdRect[]) {
-  const EPS = 1;
-  const overlapsY = (o: PdRect) =>
-    rect.y < o.y + o.h - EPS && o.y < rect.y + rect.h - EPS;
-  const overlapsX = (o: PdRect) =>
-    rect.x < o.x + o.w - EPS && o.x < rect.x + rect.w - EPS;
-  const near = (a: number, b: number) => Math.abs(a - b) < EPS;
-
-  return {
-    top: others.some((o) => near(o.y + o.h, rect.y) && overlapsX(o)),
-    bottom: others.some((o) => near(o.y, rect.y + rect.h) && overlapsX(o)),
-    left: others.some((o) => near(o.x + o.w, rect.x) && overlapsY(o)),
-    right: others.some((o) => near(o.x, rect.x + rect.w) && overlapsY(o)),
-  };
-}
 
 export default function App() {
   const state = useSyncExternalStore(pdStore.subscribe, pdStore.getSnapshot);
   const rects = state.slots.map((s) => s.rect);
+  const color = borderColor(state.border);
   return (
     <>
       {state.slots.map((slot, i) => (
@@ -34,7 +16,6 @@ export default function App() {
           index={i}
           rect={slot.rect}
           live={slot.live}
-          status={slot.status}
           label={slot.label}
           avatar={slot.avatar}
           logo={slot.logo}
@@ -45,19 +26,12 @@ export default function App() {
           key={`dc-${i}`}
           slot={i}
           rect={slot.rect}
-          show={slot.controller_disconnected === true}
+          show={slot.controller_disconnected}
         />
       ))}
-      {/* Split-screen guide lines, drawn persistently ABOVE the covers (z-10) so
-          they show during loading and over the game. Only interior edges (those
-          touching another cell) get a line — no outer frame. Color derives from
-          the config-driven border style in state (default faint). */}
+      {/* Split lines sit above the covers (z-10) so they show while loading and over the game. */}
       {state.slots.map((slot, i) => {
-        const e = interiorEdges(
-          slot.rect,
-          rects.filter((_, j) => j !== i),
-        );
-        const color = borderColor(state.border);
+        const e = interiorEdges(slot.rect, rects.filter((_, j) => j !== i));
         return (
           <div
             key={`border-${i}`}

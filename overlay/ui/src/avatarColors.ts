@@ -1,13 +1,13 @@
 export type Rgb = [number, number, number];
 
-// SteamOS blue gradient — used whenever there's no avatar or extraction fails.
+// SteamOS blue gradient, used whenever there's no avatar or extraction fails.
 export const STEAMOS_STOPS: Rgb[] = [
   [0x1b, 0x28, 0x38],
   [0x2a, 0x47, 0x5e],
   [0x66, 0xc0, 0xf4],
 ];
 
-const SAMPLE = 32; // downscale avatars to 32×32 before quantizing
+const SAMPLE = 32; // downscale avatars to 32x32 before quantizing
 
 function toHsl([r, g, b]: Rgb): [number, number, number] {
   r /= 255;
@@ -57,7 +57,7 @@ function vibrant(rgb: Rgb): Rgb {
 
 // Bucket pixels by a coarse HSL hue/lightness key and return the most common
 // buckets' average colors, ordered by lightness for a smooth vertical ramp.
-function dominant(pixels: Uint8ClampedArray, count: number): Rgb[] {
+export function dominant(pixels: Uint8ClampedArray, count: number): Rgb[] {
   const buckets = new Map<number, { sum: Rgb; n: number }>();
   for (let i = 0; i < pixels.length; i += 4) {
     const a = pixels[i + 3];

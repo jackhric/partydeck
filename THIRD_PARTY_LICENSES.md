@@ -926,6 +926,3 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 ## Chromium Embedded Framework (CEF)
 The overlay shell in `bin/cef-overlay/` bundles CEF (Copyright (c) 2008-2020 Marshall A. Greenblatt, portions Copyright (c) 2006-2009 Google Inc.), used under the BSD 3-Clause License. The full text, including the licenses of Chromium and its third-party components, is shipped alongside the binary as `bin/cef-overlay/LICENSE.cef.txt`.
-
-## Fonts (SIL Open Font License 1.1)
-The overlay page (`bin/cef-overlay/overlay.html`) embeds the Latin subsets of Inter (Copyright 2016 The Inter Project Authors), Manrope (Copyright 2018 The Manrope Project Authors), Rubik (Copyright 2015 The Rubik Project Authors) and Exo 2 (Copyright 2013 The Exo 2 Project Authors), packaged by @fontsource. Each is licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org). The fonts are embedded as-is; the reserved font names are not used for any modified version.

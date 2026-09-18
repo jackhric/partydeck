@@ -1,63 +1,54 @@
-export interface PdRect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+import type { BorderStyle, PixelRect, SlotState, State } from "./generated/proto";
 
-export interface PdSlot {
-  rect: PdRect;
-  live: boolean;
-  status: string | null;
-  label: string | null;
-  avatar: string | null;
-  logo: string | null;
-  controller_disconnected?: boolean;
-}
+export type { State as PdState, SlotState as PdSlot, PixelRect as PdRect };
 
-export interface PdState {
-  size: { w: number; h: number };
-  focus: number;
-  border?: string; // split-line style: "off" | "faint" | "medium" | "strong"
-  slots: PdSlot[];
-}
+export const PROTO_VERSION = 1;
 
-// Split-line style name -> CSS color. Unknown/missing falls back to faint.
-export const BORDER_COLORS: Record<string, string> = {
+export const EMPTY_STATE: State = {
+  proto: PROTO_VERSION,
+  size: { w: 0, h: 0 },
+  focus: 0,
+  border: "faint",
+  slots: [],
+};
+
+export const BORDER_COLORS: Record<BorderStyle, string> = {
   off: "transparent",
   faint: "rgba(255,255,255,0.1)",
   medium: "rgba(255,255,255,0.25)",
   strong: "rgba(255,255,255,0.5)",
 };
+export const BORDER_STYLES = Object.keys(BORDER_COLORS) as BorderStyle[];
 
-export function borderColor(style: string | undefined): string {
-  return BORDER_COLORS[style ?? "faint"] ?? BORDER_COLORS.faint;
+// Accepts any string so a newer compositor style degrades to faint instead of throwing.
+export function borderColor(style: BorderStyle | string): string {
+  return BORDER_COLORS[style as BorderStyle] ?? BORDER_COLORS.faint;
 }
 
 declare global {
   interface Window {
-    __pdState?: (state: PdState) => void;
+    __pdState?: (state: State) => void;
   }
 }
 
-let current: PdState = { size: { w: 0, h: 0 }, focus: 0, slots: [] };
-let lastJson: string | undefined;
-const listeners = new Set<() => void>();
+// useSyncExternalStore-shaped store. `push` is what the C shell calls through
+// window.__pdState; the shell only calls it when the JSON changed, so no dedup here.
+export function createPdStore(initial: State = EMPTY_STATE) {
+  let current = initial;
+  const listeners = new Set<() => void>();
+  return {
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    getSnapshot: () => current,
+    push(state: State) {
+      current = state;
+      for (const fn of listeners) fn();
+    },
+  };
+}
 
-window.__pdState = (state) => {
-  const json = JSON.stringify(state);
-  if (json === lastJson) return;
-  current = state;
-  lastJson = json;
-  for (const fn of listeners) fn();
-};
-
-export const pdStore = {
-  subscribe(listener: () => void) {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  },
-  getSnapshot: () => current,
-};
+export const pdStore = createPdStore();

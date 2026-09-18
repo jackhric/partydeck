@@ -32,9 +32,7 @@ export default function DisconnectedOverlay({
           >
             <path d={GAMEPAD_PATH} />
           </svg>
-          <div
-            style={{ fontFamily: "var(--pd-font, Arial, ui-sans-serif, system-ui, sans-serif)" }}
-          >
+          <div className="pd-text">
             <div className="text-white font-bold text-[min(4vw,1.75rem)]">
               No controller detected
             </div>

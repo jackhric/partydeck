@@ -1,6 +1,6 @@
-/* woff2-only faces (CEF/Chrome126 supports woff2 — skip @fontsource's woff
-   fallback so it isn't inlined into the single-file bundle). Latin subset:
-   player names are ASCII. */
+/* Dev-only: the panel's font switcher sets --pd-font to one of these stacks. */
+/* woff2-only faces (CEF/Chrome126 supports woff2, so @fontsource's woff
+   fallback is skipped). Latin subset: player names are ASCII. */
 
 @font-face {
   font-family: "Inter";

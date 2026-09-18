@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FONTS } from "../fonts";
+import { FONTS } from "./fonts";
 import { TEST_AVATARS } from "./mock";
 import { BORDER_PRESETS, devStore, useDevModel } from "./store";
 
@@ -152,12 +152,6 @@ export default function DevPanel() {
               value={s.label}
               onChange={(e) => devStore.patchSlot(i, { label: e.target.value })}
             />
-            <input
-              style={S.text}
-              placeholder="status"
-              value={s.status}
-              onChange={(e) => devStore.patchSlot(i, { status: e.target.value })}
-            />
             <div style={S.row}>
               <span style={{ opacity: 0.7, minWidth: 42 }}>Icon</span>
               <button
@@ -193,8 +187,8 @@ export default function DevPanel() {
           </button>
         </div>
         <p style={S.hint}>
-          Toggle <em>live</em> to trigger the 1&nbsp;s hold → fade. Reset re-mounts covers so you
-          can replay from <em>loading</em>.
+          Toggle <em>live</em> to trigger the 1&nbsp;s hold, then fade. Reset re-mounts covers so
+          you can replay from <em>loading</em>.
         </p>
       </Section>
     </div>

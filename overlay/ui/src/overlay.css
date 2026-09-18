@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* CEF paints onto a transparent wl_shm surface — the page must not add a
+/* CEF paints onto a transparent wl_shm surface: the page must not add a
    background of its own. Tailwind's preflight sets none, but the html/body
    height + overflow lock still needs stating. */
 html,
@@ -8,4 +8,10 @@ body {
   height: 100%;
   overflow: hidden;
   background: transparent;
+}
+
+/* Player-facing text. --pd-font is only set by the dev panel's font switcher;
+   production falls through to the system stack. */
+.pd-text {
+  font-family: var(--pd-font, Arial, ui-sans-serif, system-ui, sans-serif);
 }

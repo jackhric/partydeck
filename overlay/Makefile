@@ -12,6 +12,7 @@ STRIPPED     := $(CACHE_DIR)/libcef-stripped.so
 
 BUILD_DIR := $(MAKEFILE_DIR)/build
 BIN       := $(BUILD_DIR)/cef-overlay
+SRCS      := $(MAKEFILE_DIR)/src/main.c $(MAKEFILE_DIR)/src/wl_shm.c $(MAKEFILE_DIR)/src/ctl.c
 OUT       ?= $(BUILD_DIR)/pkg
 XDG_XML   := /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml
 UI_HTML   := $(MAKEFILE_DIR)/ui/dist/overlay.html
@@ -35,8 +36,8 @@ $(BUILD_DIR)/xdg-shell-protocol.c: $(XDG_XML)
 
 # The Deck resolves libcef's deps at runtime, the build host does not
 # (hence --allow-shlib-undefined).
-$(BIN): $(MAKEFILE_DIR)/src/main.c $(BUILD_DIR)/xdg-shell-protocol.c $(BUILD_DIR)/xdg-shell-client-protocol.h | cef-dist
-	gcc -O2 -o $@ $(MAKEFILE_DIR)/src/main.c $(BUILD_DIR)/xdg-shell-protocol.c \
+$(BIN): $(SRCS) $(MAKEFILE_DIR)/src/overlay.h $(BUILD_DIR)/xdg-shell-protocol.c $(BUILD_DIR)/xdg-shell-client-protocol.h | cef-dist
+	gcc -O2 -Wall -o $@ $(SRCS) $(BUILD_DIR)/xdg-shell-protocol.c \
 	    -I$(BUILD_DIR) -I$(DIST_DIR) -L$(DIST_DIR)/Release -lcef -lwayland-client \
 	    -Wl,--allow-shlib-undefined -Wl,-rpath,'$$ORIGIN'
 
@@ -64,7 +65,7 @@ package: shell
 	mkdir -p $(OUT)/locales
 	cp $(BIN) $(OUT)/cef-overlay
 	cp $(STRIPPED) $(OUT)/libcef.so
-	@test -f $(UI_HTML) || { echo 'ERROR: $(UI_HTML) missing — build it on the host first: make -C overlay ui' >&2; exit 1; }
+	@test -f $(UI_HTML) || { echo 'ERROR: $(UI_HTML) missing; build it on the host first: make -C overlay ui' >&2; exit 1; }
 	cp $(UI_HTML) $(OUT)/overlay.html
 	cp $(DIST_DIR)/Release/v8_context_snapshot.bin \
 	   $(DIST_DIR)/Resources/icudtl.dat \
@@ -76,6 +77,9 @@ package: shell
 	cp $(DIST_DIR)/LICENSE.txt $(OUT)/LICENSE.cef.txt
 	du -sh $(OUT)
 
+# On-device iteration for the C shell: package inside the partydeck-build image
+# (see packaging/Dockerfile) into build/holo/release/bin/cef-overlay, the same
+# path packaging/scripts/build_dist.sh uses, then rsync it to the Deck.
 deploy:
 	docker run --rm -v $(REPO_ROOT):/workspace partydeck-build \
 	    make -C overlay package OUT=/workspace/$(HOLO_OUT)
@@ -83,11 +87,12 @@ deploy:
 	    $(REPO_ROOT)/$(HOLO_OUT)/ $(DECK_HOST):$(DECK_DIR)/
 
 # Host-only (the holo container has no node/pnpm); package does NOT depend on
-# this — build the UI before packaging.
+# this, so build the UI before packaging.
 ui:
 	pnpm -C $(MAKEFILE_DIR)/ui install --frozen-lockfile
 	pnpm -C $(MAKEFILE_DIR)/ui build
 
+# On-device iteration for the UI: rebuild and rsync only overlay.html.
 deploy-ui: ui
 	rsync -e 'ssh -p $(DECK_PORT)' \
 	    $(UI_HTML) $(DECK_HOST):$(DECK_DIR)/overlay.html

@@ -1,10 +1,10 @@
 import "./fonts.css";
 
-const SYSTEM = 'Arial, ui-sans-serif, system-ui, sans-serif';
+const SYSTEM = "Arial, ui-sans-serif, system-ui, sans-serif";
 
 export interface FontChoice {
   name: string;
-  stack: string; // value for font-family / the --pd-font var
+  stack: string; // value for the --pd-font var
 }
 
 export const FONTS: FontChoice[] = [

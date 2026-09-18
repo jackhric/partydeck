@@ -1,7 +1,16 @@
-import type { PdRect, PdSlot, PdState } from "../state";
+import type { BorderStyle } from "../generated/proto";
+import { PROTO_VERSION, type PdRect, type PdSlot, type PdState } from "../state";
 
-export const SAMPLE_AVATAR =
-  "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR42mOIeVBDU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAP1h4Fu1TRxEAAAAAElFTkSuQmCC";
+// Single constructor for mock states, so a new wire field lands in one place.
+export function makeState(s: {
+  w: number;
+  h: number;
+  focus: number;
+  border: BorderStyle;
+  slots: PdSlot[];
+}): PdState {
+  return { proto: PROTO_VERSION, size: { w: s.w, h: s.h }, focus: s.focus, border: s.border, slots: s.slots };
+}
 
 // Distinct two-tone test avatars for exercising per-slot gradient extraction.
 // "Gray" has no usable hue and should drive the SteamOS-blue fallback.
@@ -24,7 +33,7 @@ export const TEST_AVATARS: { name: string; data: string }[] = [
   },
 ];
 
-// Even split of a w×h surface into `count` slot rects.
+// Even split of a w by h surface into `count` slot rects.
 export function rects(count: number, w: number, h: number): PdRect[] {
   if (count === 4) {
     return [
@@ -49,6 +58,7 @@ export function runTimeline(
   count: number,
   w: number,
   h: number,
+  border: BorderStyle,
   sink: (s: PdState) => void,
 ): () => void {
   const t0 = performance.now();
@@ -60,10 +70,11 @@ export function runTimeline(
       live: i === 0 ? t >= 4000 && t < 9000 : t >= 4000 + i * 3000,
       status: null,
       label: `Player ${i + 1}`,
-      avatar: i === 0 ? SAMPLE_AVATAR : null,
-      logo: SAMPLE_AVATAR,
+      avatar: i === 0 ? TEST_AVATARS[0].data : null,
+      logo: TEST_AVATARS[1].data,
+      controller_disconnected: false,
     }));
-    sink({ size: { w, h }, focus: 0, slots });
+    sink(makeState({ w, h, focus: 0, border, slots }));
   }, 200);
   return () => clearInterval(id);
 }
