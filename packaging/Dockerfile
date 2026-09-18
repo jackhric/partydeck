@@ -1,7 +1,9 @@
 # Builds both release artifacts (skeleton + AppImage) against SteamOS Holo glibc.
-#   Build:    docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t partydeck-build -f packaging/Dockerfile .
-#   Skeleton: docker run --rm -v "$PWD:/workspace" partydeck-build
+#   Build:      docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t partydeck-build -f packaging/Dockerfile .
+#   Skeleton:   docker run --rm -v "$PWD:/workspace" partydeck-build
 #   + AppImage: docker run --rm -v "$PWD:/workspace" partydeck-build bash packaging/scripts/build_all.sh
+# The overlay UI (overlay/ui/dist/overlay.html) is built on the host first
+# (`make -C overlay ui`); the image has no node.
 
 # Pinned for reproducibility / security
 FROM ghcr.io/steamdeckhomebrew/holo-toolchain-rust@sha256:818de45e147f35798c66498380b31bd1fe8bf75afdf0a22b027053706836faf1 AS base
@@ -10,16 +12,11 @@ FROM ghcr.io/steamdeckhomebrew/holo-toolchain-rust@sha256:818de45e147f35798c6649
 ENV RUSTUP_HOME=/.rustup \
     PATH=/.cargo/bin:$PATH
 
+# Package list shared with .github/actions/build-partydeck/action.yml.
+COPY packaging/holo-deps.txt /tmp/holo-deps.txt
+
 # libpipewire is reinstalled with --overwrite: the base image skips its headers on a file conflict.
-RUN pacman -Sy --noconfirm --needed \
-        git meson clang glslang libcap sdl2 vulkan-headers \
-        libx11 libxmu libxcomposite libxrender libxres libxtst libxkbcommon \
-        libdrm libinput wayland-protocols benchmark xorg-xwayland pipewire \
-        lcms2 hwdata seatd xcb-util-wm xcb-util-errors \
-        cmake libavif libheif aom rav1e libdecor libxdamage luajit libva \
-        libxss wget curl xorg-server-xvfb fuse-overlayfs bubblewrap zsync \
-        pulseaudio pipewire-audio alsa-plugins libxkbcommon-x11 libvdpau \
-        libvdpau-va-gl sudo pkgconf openssl zip base-devel \
+RUN sed -e 's/#.*//' /tmp/holo-deps.txt | xargs pacman -Sy --noconfirm --needed \
     && pacman -S --noconfirm --overwrite '*' libpipewire \
     && yes | pacman -Scc
 

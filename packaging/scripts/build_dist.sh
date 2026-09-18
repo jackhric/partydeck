@@ -1,24 +1,26 @@
-#!/bin/sh
-# Build the release skeleton (on-device layout) into
-# build/$BUILD_NAME/release/. Run from the repo root.
-set -eu
+#!/usr/bin/env bash
+# Build the release skeleton (on-device layout) into build/$BUILD_NAME/release/.
+# Run from the repo root, normally inside the Holo container (packaging/Dockerfile).
+# overlay/ui/dist/overlay.html must already exist (`make -C overlay ui`, host only).
+set -euo pipefail
 
 BUILD_NAME="${BUILD_NAME:-holo}"
 BUILD_DIR="${BUILD_DIR:-build/$BUILD_NAME}"
 RELEASE_DIR="$BUILD_DIR/release"
+SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Cargo caches beside the output so a bind-mounted /workspace persists them.
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/$BUILD_DIR/target}"
 export CARGO_HOME="${CARGO_HOME:-$PWD/$BUILD_DIR/home}"
 
+"$SCRIPTS/fetch_deps.sh"
+cargo build --release -p partydeck -p partydeck-comp
+
 rm -rf "$RELEASE_DIR"
-mkdir -p "$RELEASE_DIR"
+mkdir -p "$RELEASE_DIR/bin" "$RELEASE_DIR/res"
 
-cargo build --release -p partydeck -F build_gamescope -F download_deps
-cargo build --release -p partydeck-comp
+cp "$CARGO_TARGET_DIR/release/partydeck" "$RELEASE_DIR/partydeck"
 
-cp    "$CARGO_TARGET_DIR/release/partydeck" "$RELEASE_DIR/partydeck"
-cp -r "$CARGO_TARGET_DIR/release/bin"        "$RELEASE_DIR/bin"
 # partydeck-comp must only link libraries stock SteamOS ships; a stray NEEDED
 # entry (e.g. libseat, libdisplay-info) means a feature crept in and the binary
 # will not load on the Deck.
@@ -28,14 +30,15 @@ for lib in $(objdump -p "$CARGO_TARGET_DIR/release/partydeck-comp" | awk '/NEEDE
         *) echo "ERROR: partydeck-comp links unexpected library: $lib" >&2; exit 1 ;;
     esac
 done
-cp    "$CARGO_TARGET_DIR/release/partydeck-comp" "$RELEASE_DIR/bin/partydeck-comp"
+cp "$CARGO_TARGET_DIR/release/partydeck-comp" "$RELEASE_DIR/bin/partydeck-comp"
+
+"$SCRIPTS/install_deps.sh" "$RELEASE_DIR"         # bin/umu-run, res/goldberg/...
+"$SCRIPTS/build_gamescope.sh" "$RELEASE_DIR"      # bin/gamescope-kbm, bin/gamescopereaper
 make -C overlay package OUT="$PWD/$RELEASE_DIR/bin/cef-overlay"
-cp -r "$CARGO_TARGET_DIR/release/res"        "$RELEASE_DIR/res"
-# target/release/res holds only build-generated assets (goldberg); merge in the
-# runtime data (avatars) the binary loads from res/.
-cp -r res/. "$RELEASE_DIR/res/"
+
+cp -r res/. "$RELEASE_DIR/res/"                   # runtime data (avatars)
 cp packaging/steamos/GamingModeLauncher.sh "$RELEASE_DIR/GamingModeLauncher.sh"
-cp LICENSE                   "$RELEASE_DIR/LICENSE"
+cp LICENSE                  "$RELEASE_DIR/LICENSE"
 cp THIRD_PARTY_LICENSES.md  "$RELEASE_DIR/thirdparty.txt"
 
 echo "Release skeleton: $RELEASE_DIR"

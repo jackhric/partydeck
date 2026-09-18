@@ -15,32 +15,51 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  # Formatting, lints and unit tests on a stock Ubuntu toolchain. The release
+  # binaries are built against Holo in the build workflow below.
+  test:
     runs-on: ubuntu-latest
-    container: ghcr.io/steamdeckhomebrew/holo-toolchain-rust@sha256:818de45e147f35798c66498380b31bd1fe8bf75afdf0a22b027053706836faf1
     steps:
-      # The Holo image ships no git; Install before checkout.
-      - name: Install git
-        run: pacman -Sy --noconfirm --needed git
-
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Build
-        id: build
-        uses: ./.github/actions/build-partydeck
-        with:
-          version: UNOFFICIAL
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              pkg-config libssl-dev libxkbcommon-dev libwayland-dev
 
-      - name: Upload tarball
-        uses: actions/upload-artifact@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          name: partydeck-UNOFFICIAL-steamdeck-${{ github.sha }}
-          path: ${{ steps.build.outputs.tarball }}
+          components: rustfmt, clippy
 
-      - name: Upload AppImage
-        uses: actions/upload-artifact@v4
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - uses: pnpm/action-setup@v4
         with:
-          name: partydeck-UNOFFICIAL-anylinux-${{ github.sha }}
-          path: ${{ steps.build.outputs.appimage }}
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: overlay/ui/pnpm-lock.yaml
+
+      - name: overlay ui
+        run: |
+          pnpm -C overlay/ui install --frozen-lockfile
+          pnpm -C overlay/ui run --if-present test
+          pnpm -C overlay/ui build
+
+  build:
+    uses: ./.github/workflows/build.yml
+    with:
+      version: UNOFFICIAL

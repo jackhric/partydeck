@@ -1,0 +1,71 @@
+# Pacman packages installed on top of the holo-toolchain-rust image.
+# Read by packaging/Dockerfile and .github/actions/build-partydeck/action.yml
+# (one package per line; "#" starts a comment). Keep the two consumers in sync
+# by editing only this file.
+#
+# NOT listed on purpose: libdisplay-info. If it is installed, gamescope-kbm
+# links the image's libdisplay-info.so.2, which the Deck does not ship, and the
+# binary fails to load. Both consumers remove it after installing this list so
+# meson statically links gamescope's vendored copy.
+
+# toolchain
+git
+meson            # pulls ninja
+cmake
+clang
+glslang
+pkgconf
+base-devel
+sudo
+wget
+curl
+zip
+openssl
+
+# gamescope-kbm (deps/gamescope) build deps
+libcap
+sdl2
+vulkan-headers
+libx11
+libxmu
+libxcomposite
+libxrender
+libxres
+libxtst
+libxkbcommon
+libxkbcommon-x11
+libxdamage
+libxss
+libdrm
+libinput
+wayland-protocols
+benchmark
+xorg-xwayland
+xorg-server-xvfb
+pipewire
+pipewire-audio
+pulseaudio
+alsa-plugins
+lcms2
+hwdata
+seatd
+xcb-util-wm
+xcb-util-errors
+libavif
+libheif
+aom
+rav1e
+libdecor
+luajit
+libva
+libvdpau
+libvdpau-va-gl
+
+# AppImage (packaging/scripts/build_appimage.sh)
+fuse-overlayfs
+bubblewrap
+zsync
+
+# packaging/scripts/fetch_deps.sh: goldberg's emu-win-release.7z
+p7zip
+libarchive       # bsdtar fallback for .7z

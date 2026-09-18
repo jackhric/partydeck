@@ -1,8 +1,9 @@
 name: Build PartyDeck
 description: >
   Build the Holo release tarball and the AppImage inside the Holo toolchain
-  container. Assumes the job already declared the holo-toolchain-rust container
-  and checked out the repo with submodules. Caches cargo + pacman.
+  container. Assumes the job already declared the holo-toolchain-rust container,
+  checked out the repo with submodules, and placed the host-built overlay UI at
+  overlay/ui/dist/overlay.html. Caches pacman, cargo and the CEF tarball.
 
 inputs:
   version:
@@ -24,30 +25,42 @@ runs:
       uses: actions/cache@v4
       with:
         path: /var/cache/pacman/pkg
-        key: pacman-holo-${{ hashFiles('packaging/Dockerfile') }}
+        key: pacman-holo-${{ hashFiles('packaging/holo-deps.txt') }}
         restore-keys: pacman-holo-
 
+    # Same list as packaging/Dockerfile: edit packaging/holo-deps.txt, not this file.
     - name: Install build dependencies
       shell: bash
       run: |
         pacman-key --init
-        pacman -Sy --noconfirm --needed \
-            git meson clang glslang libcap sdl2 vulkan-headers \
-            libx11 libxmu libxcomposite libxrender libxres libxtst libxkbcommon \
-            libdrm libinput wayland-protocols benchmark xorg-xwayland pipewire \
-            lcms2 hwdata seatd xcb-util-wm xcb-util-errors libdisplay-info \
-            cmake libavif libheif aom rav1e libdecor libxdamage luajit libva \
-            libxss wget curl xorg-server-xvfb fuse-overlayfs bubblewrap zsync \
-            pulseaudio pipewire-audio alsa-plugins libxkbcommon-x11 libvdpau \
-            libvdpau-va-gl sudo pkgconf openssl zip base-devel
+        sed -e 's/#.*//' packaging/holo-deps.txt | xargs pacman -Sy --noconfirm --needed
         pacman -S --noconfirm --overwrite '*' libpipewire
+        # gamescope-kbm must not link the image's libdisplay-info.so.2 (the Deck
+        # ships .so.3 only); without the package meson statically links its own.
+        pacman -Rdd --noconfirm libdisplay-info || true
         install -m755 packaging/scripts/pacman_shim.sh /usr/local/bin/pacman  # see packaging/scripts/pacman_shim.sh for more info
+
+    - name: Check overlay UI is present
+      shell: bash
+      run: |
+        test -f overlay/ui/dist/overlay.html || {
+            echo "overlay/ui/dist/overlay.html missing: run 'make -C overlay ui' on the host and download it into the job" >&2
+            exit 1
+        }
 
     # Default cargo locations so rust-cache can pick up the registry + target.
     - name: Cache cargo + build artifacts
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: . -> target
+
+    # The Makefile re-verifies the sha256 and re-extracts on a miss, so caching
+    # only the tarball (not the multi-GB extracted dist) is enough.
+    - name: Cache CEF tarball
+      uses: actions/cache@v4
+      with:
+        path: build/cef/cef.tar.bz2
+        key: cef-${{ hashFiles('overlay/Makefile') }}
 
     - name: Build skeleton + AppImage
       shell: bash

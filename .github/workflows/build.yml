@@ -1,0 +1,90 @@
+# Reusable build: host-side overlay UI, then the Holo container build.
+# Called by ci.yml and release.yml; publishes nothing itself.
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version string embedded in artifact filenames (e.g. v1.2.3 or UNOFFICIAL).
+        required: true
+        type: string
+    outputs:
+      tarball_artifact:
+        description: Name of the uploaded artifact holding the SteamOS tarball.
+        value: ${{ jobs.build.outputs.tarball_artifact }}
+      appimage_artifact:
+        description: Name of the uploaded artifact holding the AppImage.
+        value: ${{ jobs.build.outputs.appimage_artifact }}
+
+permissions:
+  contents: read
+
+jobs:
+  # The Holo container has no node/pnpm, so the single-file overlay page is
+  # built on the runner host and handed to the container job as an artifact.
+  overlay-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: overlay/ui/pnpm-lock.yaml
+
+      - name: Build overlay UI
+        run: make -C overlay ui
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: overlay-ui-html
+          path: overlay/ui/dist/overlay.html
+          if-no-files-found: error
+
+  build:
+    needs: overlay-ui
+    runs-on: ubuntu-latest
+    container: ghcr.io/steamdeckhomebrew/holo-toolchain-rust@sha256:818de45e147f35798c66498380b31bd1fe8bf75afdf0a22b027053706836faf1
+    outputs:
+      tarball_artifact: partydeck-${{ inputs.version }}-steamdeck-x86_64
+      appimage_artifact: partydeck-${{ inputs.version }}-anylinux-x86_64
+    steps:
+      # The Holo image ships no git; install before checkout.
+      - name: Install git
+        run: pacman -Sy --noconfirm --needed git
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Fetch overlay UI
+        uses: actions/download-artifact@v4
+        with:
+          name: overlay-ui-html
+          path: overlay/ui/dist
+
+      - name: Build
+        id: build
+        uses: ./.github/actions/build-partydeck
+        with:
+          version: ${{ inputs.version }}
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: partydeck-${{ inputs.version }}-steamdeck-x86_64
+          path: ${{ steps.build.outputs.tarball }}
+          if-no-files-found: error
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: partydeck-${{ inputs.version }}-anylinux-x86_64
+          path: ${{ steps.build.outputs.appimage }}
+          if-no-files-found: error
