@@ -91,10 +91,10 @@ impl PartyApp {
                     }
                 }
                 PadButton::YBtn | PadButton::AKey => self.draft.begin_adding_from(dev),
-                PadButton::StartBtn => {
-                    if !self.draft.instances.is_empty() && self.draft.contains_device(dev) {
-                        self.prepare_game_launch();
-                    }
+                PadButton::StartBtn
+                    if !self.draft.instances.is_empty() && self.draft.contains_device(dev) =>
+                {
+                    self.prepare_game_launch();
                 }
                 _ => {}
             }
