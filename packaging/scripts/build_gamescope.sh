@@ -18,6 +18,11 @@ BUILD_DIR="$REPO_ROOT/build/gamescope"
     exit 1
 }
 
+[ "$(git -C "$SRC" rev-parse --show-toplevel 2>/dev/null)" = "$SRC" ] || {
+    echo "build_gamescope.sh: $SRC is not a git work tree; the patch check would silently pass" >&2
+    exit 1
+}
+
 # deps.patch is written against the superproject (a/deps/gamescope/...), so
 # strip three components to apply it from inside the submodule.
 if git -C "$SRC" apply --check --reverse -p3 "$PATCH" 2>/dev/null; then

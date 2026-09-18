@@ -32,8 +32,6 @@ DEPS=(
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "fetch_deps.sh: missing tool: $1" >&2; exit 1; }; }
 need curl; need sha256sum; need tar
-have_7z() { command -v 7z >/dev/null 2>&1 || command -v 7za >/dev/null 2>&1 || command -v bsdtar >/dev/null 2>&1; }
-have_7z || { echo "fetch_deps.sh: need 7z, 7za or bsdtar (pacman: p7zip / libarchive; apt: p7zip-full / libarchive-tools)" >&2; exit 1; }
 
 latest_asset_url() { # repo, name substring -> browser_download_url
     need jq

@@ -17,7 +17,6 @@ SHARUN="https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/refs/h
 export ADD_HOOKS="self-updater.bg.hook"
 export OUTNAME="partydeck-anylinux-$ARCH.AppImage"
 export DESKTOP="$REPO_ROOT/packaging/appimage/partydeck.desktop"
-export ICON="$REPO_ROOT/crates/partydeck/assets/icons/icon.png"
 export OUTPATH=.
 export DEPLOY_SDL=1
 export DEPLOY_OPENGL=1
@@ -27,6 +26,8 @@ export STRIP=1
 WORK="$REPO_ROOT/build/appimage"
 rm -rf "$WORK"
 mkdir -p "$WORK"
+cp "$REPO_ROOT/crates/partydeck/assets/icons/icon.png" "$WORK/partydeck.png"
+export ICON="$WORK/partydeck.png"
 cd "$WORK"
 
 wget --retry-connrefused --tries=30 "$DEBLOATED_PKGS" -O ./get-debloated-pkgs

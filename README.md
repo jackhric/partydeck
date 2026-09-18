@@ -61,7 +61,7 @@ Windows games run through UMU Launcher and Proton. Games that use the Steam API 
 
 ## Building
 
-You need a Rust toolchain (2024 edition), `pnpm`, `make`, `meson`, `ninja`, `7z` and gamescope's build dependencies. Clone with submodules:
+You need a Rust toolchain (2024 edition), `git`, `gcc`, `make`, `curl`, `binutils`, `pnpm`, `meson`, `ninja`, `bsdtar` or `7z`, `wayland-scanner` with the Wayland protocol and client headers, and gamescope's build dependencies. Clone with submodules:
 
 ```
 git clone --recurse-submodules https://github.com/jackhric/partydeck.git
@@ -81,7 +81,7 @@ Release artifacts are built against SteamOS in Docker (the overlay page is built
 
 ```
 make -C overlay ui
-docker build -t partydeck-build -f packaging/Dockerfile .
+docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t partydeck-build -f packaging/Dockerfile .
 docker run --rm -v "$PWD:/workspace" partydeck-build bash packaging/scripts/build_all.sh
 ```
 

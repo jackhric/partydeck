@@ -3,10 +3,10 @@
 Release builds target SteamOS (Holo). Build the overlay page on the host first, then build the rest in the Holo container:
 
     make -C overlay ui
-    docker build -t partydeck-build -f packaging/Dockerfile .
+    docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t partydeck-build -f packaging/Dockerfile .
     docker run --rm -v "$PWD:/workspace" partydeck-build bash packaging/scripts/build_all.sh
 
-Native (any distro with rust, pnpm, meson, ninja, 7z and gamescope's build deps): `make -C overlay ui && packaging/scripts/build_all.sh`. Output: `build/holo/release/` and `build/appimage/`.
+Native (any distro with rust, git, gcc, make, curl, binutils, pnpm, meson, ninja, bsdtar or 7z, wayland-scanner plus Wayland headers, and gamescope's build deps): `make -C overlay ui && packaging/scripts/build_all.sh`. Output: `build/holo/release/` and `build/appimage/`.
 
 | Script | Does |
 |---|---|

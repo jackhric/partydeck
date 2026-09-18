@@ -51,6 +51,9 @@ jobs:
     needs: overlay-ui
     runs-on: ubuntu-latest
     container: ghcr.io/steamdeckhomebrew/holo-toolchain-rust@sha256:818de45e147f35798c66498380b31bd1fe8bf75afdf0a22b027053706836faf1
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      CARGO_HOME: ${{ github.workspace }}/.cargo
     outputs:
       tarball_artifact: partydeck-${{ inputs.version }}-steamdeck-x86_64
       appimage_artifact: partydeck-${{ inputs.version }}-anylinux-x86_64

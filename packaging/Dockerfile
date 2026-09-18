@@ -23,7 +23,7 @@ RUN sed -e 's/#.*//' /tmp/holo-deps.txt | xargs pacman -Sy --noconfirm --needed 
 # MUST remove: if present, gamescope dynamically links gamescope-kbm against the
 # base image's libdisplay-info.so.2, but the Deck only ships .so.3, so the binary
 # fails to load and KBM games crash. Without it, meson statically links its
-# vendored copy. (Real pacman — the COPY'd shim below intercepts later.)
+# vendored copy. (Real pacman; the COPY'd shim below intercepts later.)
 RUN /usr/bin/pacman -Rdd --noconfirm libdisplay-info 2>/dev/null || true
 
 # Lets build_appimage.sh's debloated packages install here: see packaging/scripts/pacman_shim.sh.

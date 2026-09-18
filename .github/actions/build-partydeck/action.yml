@@ -48,7 +48,8 @@ runs:
             exit 1
         }
 
-    # Default cargo locations so rust-cache can pick up the registry + target.
+    # CARGO_HOME and CARGO_TARGET_DIR come from the calling job so rust-cache
+    # and the build see the same locations.
     - name: Cache cargo + build artifacts
       uses: Swatinem/rust-cache@v2
       with:
@@ -62,11 +63,19 @@ runs:
         path: build/cef/cef.tar.bz2
         key: cef-${{ hashFiles('overlay/Makefile') }}
 
+    - name: Resolve gamescope revision
+      id: gamescope
+      shell: bash
+      run: echo "sha=$(git -C deps/gamescope rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache gamescope build
+      uses: actions/cache@v4
+      with:
+        path: build/gamescope
+        key: gamescope-${{ steps.gamescope.outputs.sha }}-${{ hashFiles('deps/deps.patch', 'packaging/scripts/build_gamescope.sh') }}
+
     - name: Build skeleton + AppImage
       shell: bash
-      env:
-        CARGO_TARGET_DIR: ${{ github.workspace }}/target
-        CARGO_HOME: ${{ github.workspace }}/.cargo
       run: ./packaging/scripts/build_all.sh
 
     - name: Package tarball

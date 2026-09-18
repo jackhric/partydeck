@@ -58,11 +58,11 @@ jobs:
           cache: pnpm
           cache-dependency-path: overlay/ui/pnpm-lock.yaml
 
-      - name: overlay ui
+      - name: overlay ui tests
         run: |
           pnpm -C overlay/ui install --frozen-lockfile
-          pnpm -C overlay/ui run --if-present test
-          pnpm -C overlay/ui build
+          pnpm -C overlay/ui exec tsc --noEmit
+          pnpm -C overlay/ui test
 
   build:
     uses: ./.github/workflows/build.yml

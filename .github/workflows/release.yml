@@ -10,7 +10,7 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   version:
@@ -20,7 +20,9 @@ jobs:
     steps:
       - name: Resolve version
         id: version
-        run: echo "value=${{ github.event.inputs.version || github.ref_name }}" >> "$GITHUB_OUTPUT"
+        env:
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
+        run: echo "value=$VERSION" >> "$GITHUB_OUTPUT"
 
   build:
     needs: version
@@ -31,6 +33,8 @@ jobs:
   release:
     needs: [version, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download tarball
         uses: actions/download-artifact@v4

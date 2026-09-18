@@ -67,5 +67,3 @@ bubblewrap
 zsync
 
 # packaging/scripts/fetch_deps.sh: goldberg's emu-win-release.7z
-p7zip
-libarchive       # bsdtar fallback for .7z

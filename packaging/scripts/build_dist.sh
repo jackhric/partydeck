@@ -6,12 +6,18 @@ set -euo pipefail
 
 BUILD_NAME="${BUILD_NAME:-holo}"
 BUILD_DIR="${BUILD_DIR:-build/$BUILD_NAME}"
+case "$BUILD_DIR" in /*) ;; *) BUILD_DIR="$PWD/$BUILD_DIR" ;; esac
 RELEASE_DIR="$BUILD_DIR/release"
+
+test -f overlay/ui/dist/overlay.html || {
+    echo "overlay/ui/dist/overlay.html missing: run 'make -C overlay ui' first" >&2
+    exit 1
+}
 SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Cargo caches beside the output so a bind-mounted /workspace persists them.
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/$BUILD_DIR/target}"
-export CARGO_HOME="${CARGO_HOME:-$PWD/$BUILD_DIR/home}"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$BUILD_DIR/target}"
+export CARGO_HOME="${CARGO_HOME:-$BUILD_DIR/home}"
 
 "$SCRIPTS/fetch_deps.sh"
 cargo build --release -p partydeck -p partydeck-comp
@@ -34,7 +40,7 @@ cp "$CARGO_TARGET_DIR/release/partydeck-comp" "$RELEASE_DIR/bin/partydeck-comp"
 
 "$SCRIPTS/install_deps.sh" "$RELEASE_DIR"         # bin/umu-run, res/goldberg/...
 "$SCRIPTS/build_gamescope.sh" "$RELEASE_DIR"      # bin/gamescope-kbm, bin/gamescopereaper
-make -C overlay package OUT="$PWD/$RELEASE_DIR/bin/cef-overlay"
+make -C overlay package OUT="$RELEASE_DIR/bin/cef-overlay"
 
 cp -r res/. "$RELEASE_DIR/res/"                   # runtime data (avatars)
 cp packaging/steamos/GamingModeLauncher.sh "$RELEASE_DIR/GamingModeLauncher.sh"
