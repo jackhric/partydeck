@@ -74,7 +74,7 @@ fn main() -> eframe::Result {
             .with_min_inner_size([640.0, 360.0])
             .with_fullscreen(fullscreen)
             .with_icon(
-                eframe::icon_data::from_png_bytes(&include_bytes!("../res/icon.png")[..])
+                eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icons/icon.png")[..])
                     .expect("Failed to load icon"),
             ),
         ..Default::default()

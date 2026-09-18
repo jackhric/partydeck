@@ -1,10 +1,10 @@
 #!/bin/sh
 # Build the release skeleton (on-device layout) into
-# dist/build_generated/$BUILD_NAME/release/. Run from the repo root.
+# build/$BUILD_NAME/release/. Run from the repo root.
 set -eu
 
 BUILD_NAME="${BUILD_NAME:-holo}"
-BUILD_DIR="${BUILD_DIR:-dist/build_generated/$BUILD_NAME}"
+BUILD_DIR="${BUILD_DIR:-build/$BUILD_NAME}"
 RELEASE_DIR="$BUILD_DIR/release"
 
 # Cargo caches beside the output so a bind-mounted /workspace persists them.
@@ -14,7 +14,7 @@ export CARGO_HOME="${CARGO_HOME:-$PWD/$BUILD_DIR/home}"
 rm -rf "$RELEASE_DIR"
 mkdir -p "$RELEASE_DIR"
 
-cargo build --release -F build_gamescope -F download_deps
+cargo build --release -p partydeck -F build_gamescope -F download_deps
 cargo build --release -p partydeck-comp
 
 cp    "$CARGO_TARGET_DIR/release/partydeck" "$RELEASE_DIR/partydeck"
@@ -29,13 +29,13 @@ for lib in $(objdump -p "$CARGO_TARGET_DIR/release/partydeck-comp" | awk '/NEEDE
     esac
 done
 cp    "$CARGO_TARGET_DIR/release/partydeck-comp" "$RELEASE_DIR/bin/partydeck-comp"
-make -C cef-overlay package OUT="$PWD/$RELEASE_DIR/bin/cef-overlay"
+make -C overlay package OUT="$PWD/$RELEASE_DIR/bin/cef-overlay"
 cp -r "$CARGO_TARGET_DIR/release/res"        "$RELEASE_DIR/res"
 # target/release/res holds only build-generated assets (goldberg); merge in the
-# static source assets (avatars, glyphs) the binary loads from res/ at runtime.
+# runtime data (avatars) the binary loads from res/.
 cp -r res/. "$RELEASE_DIR/res/"
-cp res/GamingModeLauncher.sh "$RELEASE_DIR/GamingModeLauncher.sh"
+cp packaging/steamos/GamingModeLauncher.sh "$RELEASE_DIR/GamingModeLauncher.sh"
 cp LICENSE                   "$RELEASE_DIR/LICENSE"
-cp COPYING.md                "$RELEASE_DIR/thirdparty.txt"
+cp THIRD_PARTY_LICENSES.md  "$RELEASE_DIR/thirdparty.txt"
 
 echo "Release skeleton: $RELEASE_DIR"

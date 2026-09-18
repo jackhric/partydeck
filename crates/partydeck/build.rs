@@ -1,4 +1,6 @@
-use std::{fs, path::PathBuf};
+use std::fs;
+#[cfg(feature = "build_gamescope")]
+use std::path::PathBuf;
 use std::path::Path;
 
 #[cfg(all(not(feature = "download_deps_latest"), feature = "download_deps"))]
@@ -86,7 +88,7 @@ fn apply_patches(deps_dir: &std::path::Path) {
 }
 
 fn main() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let deps_dir = root.join("deps/");
     fs::create_dir_all(&deps_dir).expect(&format!("failed to create directory: {:?}", deps_dir));
 

@@ -24,7 +24,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: /var/cache/pacman/pkg
-        key: pacman-holo-${{ hashFiles('dist/Dockerfile') }}
+        key: pacman-holo-${{ hashFiles('packaging/Dockerfile') }}
         restore-keys: pacman-holo-
 
     - name: Install build dependencies
@@ -41,7 +41,7 @@ runs:
             pulseaudio pipewire-audio alsa-plugins libxkbcommon-x11 libvdpau \
             libvdpau-va-gl sudo pkgconf openssl zip base-devel
         pacman -S --noconfirm --overwrite '*' libpipewire
-        install -m755 dist/scripts/pacman_shim.sh /usr/local/bin/pacman  # see dist/scripts/pacman_shim.sh for more info
+        install -m755 packaging/scripts/pacman_shim.sh /usr/local/bin/pacman  # see packaging/scripts/pacman_shim.sh for more info
 
     # Default cargo locations so rust-cache can pick up the registry + target.
     - name: Cache cargo + build artifacts
@@ -54,12 +54,12 @@ runs:
       env:
         CARGO_TARGET_DIR: ${{ github.workspace }}/target
         CARGO_HOME: ${{ github.workspace }}/.cargo
-      run: ./dist/scripts/build_all.sh
+      run: ./packaging/scripts/build_all.sh
 
     - name: Package tarball
       shell: bash
       run: |
         tar -czf "partydeck-${{ inputs.version }}-steamdeck-x86_64.tar.gz" \
-            -C dist/build_generated/holo release/
-        cp dist/appimage_generated/partydeck-anylinux-x86_64.AppImage \
+            -C build/holo release/
+        cp build/appimage/partydeck-anylinux-x86_64.AppImage \
             "partydeck-${{ inputs.version }}-anylinux-x86_64.AppImage"

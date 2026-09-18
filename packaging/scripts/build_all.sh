@@ -3,5 +3,5 @@
 # wraps it. Run from the repo root. Honors BUILD_NAME (default: holo).
 set -eu
 
-./dist/scripts/build_dist.sh
-./dist/scripts/build_appimage.sh
+./packaging/scripts/build_dist.sh
+./packaging/scripts/build_appimage.sh

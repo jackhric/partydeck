@@ -4,7 +4,7 @@
 > [@Blahkaey](https://github.com/blahkaey) and [@davidawesome02-backup](https://github.com/davidawesome02-backup) are currently maintaining partydeck and the related handlers.
 > Development efforts will continue, hopefully adding some exciting new features soon. Stay tuned for more updates.
 
-<img src=".github/assets/icon.png" align="left" width="100" height="100">
+<img src="docs/images/icon.png" align="left" width="100" height="100">
 
 ### `PartyDeck`
 
@@ -13,8 +13,8 @@ A split-screen game launcher for Linux/SteamOS
 ---
 
 <p align="center">
-    <img src=".github/assets/launcher.png" width="49%" />
-    <img src=".github/assets/gameplay1.png" width="49%" />
+    <img src="docs/images/launcher.png" width="49%" />
+    <img src="docs/images/gameplay1.png" width="49%" />
 </p>
 
 > [!NOTE]

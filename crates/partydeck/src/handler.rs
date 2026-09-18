@@ -125,7 +125,7 @@ impl Handler {
         if self.path_handler.join("icon.png").exists() {
             format!("file://{}/icon.png", self.path_handler.display()).into()
         } else {
-            egui::include_image!("../res/executable_icon.png")
+            egui::include_image!("../assets/icons/executable_icon.png")
         }
     }
 

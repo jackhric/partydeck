@@ -4,7 +4,7 @@ CEF_URL     := https://cef-builds.spotifycdn.com/cef_binary_$(subst +,%2B,$(CEF_
 
 MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 REPO_ROOT    := $(abspath $(MAKEFILE_DIR)/..)
-CACHE_DIR    := $(REPO_ROOT)/dist/build_generated/cef
+CACHE_DIR    := $(REPO_ROOT)/build/cef
 TARBALL      := $(CACHE_DIR)/cef.tar.bz2
 DIST_DIR     := $(CACHE_DIR)/dist
 LIBCEF       := $(DIST_DIR)/Release/libcef.so
@@ -19,7 +19,7 @@ UI_HTML   := $(MAKEFILE_DIR)/ui/dist/overlay.html
 DECK_HOST ?= deck@steamdeck.internal
 DECK_PORT ?= 22
 DECK_DIR  := /home/deck/homebrew/data/PartyDeck/bin/cef-overlay
-HOLO_OUT  := dist/build_generated/holo/release/bin/cef-overlay
+HOLO_OUT  := build/holo/release/bin/cef-overlay
 
 .PHONY: shell cef-dist package deploy ui deploy-ui clean
 
@@ -64,7 +64,7 @@ package: shell
 	mkdir -p $(OUT)/locales
 	cp $(BIN) $(OUT)/cef-overlay
 	cp $(STRIPPED) $(OUT)/libcef.so
-	@test -f $(UI_HTML) || { echo 'ERROR: $(UI_HTML) missing — build it on the host first: make -C cef-overlay ui' >&2; exit 1; }
+	@test -f $(UI_HTML) || { echo 'ERROR: $(UI_HTML) missing — build it on the host first: make -C overlay ui' >&2; exit 1; }
 	cp $(UI_HTML) $(OUT)/overlay.html
 	cp $(DIST_DIR)/Release/v8_context_snapshot.bin \
 	   $(DIST_DIR)/Resources/icudtl.dat \
@@ -78,7 +78,7 @@ package: shell
 
 deploy:
 	docker run --rm -v $(REPO_ROOT):/workspace partydeck-build \
-	    make -C cef-overlay package OUT=/workspace/$(HOLO_OUT)
+	    make -C overlay package OUT=/workspace/$(HOLO_OUT)
 	rsync -a --delete -e 'ssh -p $(DECK_PORT)' \
 	    $(REPO_ROOT)/$(HOLO_OUT)/ $(DECK_HOST):$(DECK_DIR)/
 

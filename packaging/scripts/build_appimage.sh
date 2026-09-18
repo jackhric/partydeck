@@ -1,12 +1,12 @@
 #!/bin/sh
 # Wrap the release skeleton into a self-contained AppImage via sharun. Run from
 # the repo root after build_dist.sh. Override the input with RELEASE_BUNDLE_DIR.
-# Output: dist/appimage_generated/partydeck-anylinux-<arch>.AppImage
+# Output: build/appimage/partydeck-anylinux-<arch>.AppImage
 set -eu
 
 REPO_ROOT="$PWD"
 BUILD_NAME="${BUILD_NAME:-holo}"
-RELEASE_BUNDLE_DIR="${RELEASE_BUNDLE_DIR:-$REPO_ROOT/dist/build_generated/$BUILD_NAME/release}"
+RELEASE_BUNDLE_DIR="${RELEASE_BUNDLE_DIR:-$REPO_ROOT/build/$BUILD_NAME/release}"
 # Accept a repo-relative override.
 case "$RELEASE_BUNDLE_DIR" in /*) ;; *) RELEASE_BUNDLE_DIR="$REPO_ROOT/$RELEASE_BUNDLE_DIR" ;; esac
 
@@ -16,15 +16,15 @@ SHARUN="https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/refs/h
 
 export ADD_HOOKS="self-updater.bg.hook"
 export OUTNAME="partydeck-anylinux-$ARCH.AppImage"
-export DESKTOP="$REPO_ROOT/dist/assets/partydeck.desktop"
-export ICON="$REPO_ROOT/dist/assets/partydeck.png"
+export DESKTOP="$REPO_ROOT/packaging/appimage/partydeck.desktop"
+export ICON="$REPO_ROOT/crates/partydeck/assets/icons/icon.png"
 export OUTPATH=.
 export DEPLOY_SDL=1
 export DEPLOY_OPENGL=1
 export DEPLOY_VULKAN=1
 export STRIP=1
 
-WORK="$REPO_ROOT/dist/appimage_generated"
+WORK="$REPO_ROOT/build/appimage"
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cd "$WORK"

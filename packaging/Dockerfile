@@ -1,7 +1,7 @@
 # Builds both release artifacts (skeleton + AppImage) against SteamOS Holo glibc.
-#   Build:    docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t partydeck-build -f dist/Dockerfile .
+#   Build:    docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t partydeck-build -f packaging/Dockerfile .
 #   Skeleton: docker run --rm -v "$PWD:/workspace" partydeck-build
-#   + AppImage: docker run --rm -v "$PWD:/workspace" partydeck-build bash dist/scripts/build_all.sh
+#   + AppImage: docker run --rm -v "$PWD:/workspace" partydeck-build bash packaging/scripts/build_all.sh
 
 # Pinned for reproducibility / security
 FROM ghcr.io/steamdeckhomebrew/holo-toolchain-rust@sha256:818de45e147f35798c66498380b31bd1fe8bf75afdf0a22b027053706836faf1 AS base
@@ -29,8 +29,8 @@ RUN pacman -Sy --noconfirm --needed \
 # vendored copy. (Real pacman — the COPY'd shim below intercepts later.)
 RUN /usr/bin/pacman -Rdd --noconfirm libdisplay-info 2>/dev/null || true
 
-# Lets build_appimage.sh's debloated packages install here: see dist/scripts/pacman_shim.sh.
-COPY dist/scripts/pacman_shim.sh /usr/local/bin/pacman
+# Lets build_appimage.sh's debloated packages install here: see packaging/scripts/pacman_shim.sh.
+COPY packaging/scripts/pacman_shim.sh /usr/local/bin/pacman
 RUN chmod +x /usr/local/bin/pacman
 
 FROM base AS runtime
@@ -51,4 +51,4 @@ WORKDIR /workspace
 ENV BUILD_NAME=holo
 
 # Default: skeleton only. Override the command to also build the AppImage.
-CMD ["bash", "dist/scripts/build_dist.sh"]
+CMD ["bash", "packaging/scripts/build_dist.sh"]

@@ -6,7 +6,7 @@ session and points each game's gamescope at one of its per-player sockets.
 
 ## Crate layout
 
-- `proto/` — `partydeck-comp-proto`: the shared schema (layout, presets, ipc
+- `crates/comp-proto/` — `partydeck-comp-proto`: the shared schema (layout, presets, ipc
   wire types). Dependency-light (serde only); the partydeck app depends on this,
   never on the compositor itself.
 - `src/` — the compositor binary.

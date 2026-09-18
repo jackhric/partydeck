@@ -31,7 +31,7 @@ impl PartyApp {
 
             let homebtn = ui.add(
                 egui::Button::image_and_text(
-                    egui::include_image!("../../res/BTN_EAST.png"),
+                    egui::include_image!("../../assets/glyphs/BTN_EAST.png"),
                     hometext,
                 )
                 .selected(self.cur_page == MenuPage::Home),
@@ -42,7 +42,7 @@ impl PartyApp {
             }
 
             let settingsbtn = ui.add(
-                egui::Button::image_and_text(egui::include_image!("../../res/BTN_NORTH.png"), "⛭")
+                egui::Button::image_and_text(egui::include_image!("../../assets/glyphs/BTN_NORTH.png"), "⛭")
                     .selected(self.cur_page == MenuPage::Settings),
             );
             if settingsbtn.clicked() {
@@ -50,7 +50,7 @@ impl PartyApp {
             }
 
             let profilesbtn = ui.add(
-                egui::Button::image_and_text(egui::include_image!("../../res/BTN_WEST.png"), "👥")
+                egui::Button::image_and_text(egui::include_image!("../../assets/glyphs/BTN_WEST.png"), "👥")
                     .selected(self.cur_page == MenuPage::Profiles),
             );
             if profilesbtn.clicked() {

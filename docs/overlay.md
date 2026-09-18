@@ -34,7 +34,7 @@ is missing. `sync-partydeck-binary.sh` does this automatically.
 
 `make shell` builds the binary locally; `make package [OUT=dir]` assembles the
 runtime bundle. Both need the pinned CEF dist, which `cef-dist` downloads,
-extracts, and strips once into `../dist/build_generated/cef/` and reuses.
+extracts, and strips once into `build/cef/` and reuses.
 
 ## Runtime bundle
 
@@ -43,7 +43,7 @@ extracts, and strips once into `../dist/build_generated/cef/` and reuses.
 `chrome_100_percent.pak`, `chrome_200_percent.pak`, `locales/en-US.pak`,
 `LICENSE.cef.txt`. Deliberately excluded: libEGL/libGLESv2/swiftshader/vulkan
 (we run `--disable-gpu`), `chrome-sandbox` (`--no-sandbox`), and the 219 other
-locales. `dist/scripts/build_dist.sh` runs the same `package` target into the
+locales. `packaging/scripts/build_dist.sh` runs the same `package` target into the
 release skeleton at `bin/cef-overlay/`.
 
 ## Spawn contract

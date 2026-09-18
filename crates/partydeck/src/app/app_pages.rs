@@ -304,7 +304,7 @@ impl PartyApp {
 
         ui.horizontal(|ui| {
             let playbtn = ui.add(egui::Button::image_and_text(
-                egui::include_image!("../../res/BTN_START.png"),
+                egui::include_image!("../../assets/glyphs/BTN_START.png"),
                 "Play",
             ));
             if playbtn.clicked() {
@@ -382,11 +382,11 @@ impl PartyApp {
 
         ui.horizontal(|ui| {
             ui.add(
-                egui::Image::new(egui::include_image!("../../res/BTN_SOUTH.png")).max_height(12.0),
+                egui::Image::new(egui::include_image!("../../assets/glyphs/BTN_SOUTH.png")).max_height(12.0),
             );
             ui.label("[Z]");
             ui.add(
-                egui::Image::new(egui::include_image!("../../res/MOUSE_RIGHT.png"))
+                egui::Image::new(egui::include_image!("../../assets/glyphs/MOUSE_RIGHT.png"))
                     .max_height(12.0),
             );
             let add_text = match self.instance_add_dev {
@@ -398,7 +398,7 @@ impl PartyApp {
             ui.add(egui::Separator::default().vertical());
 
             ui.add(
-                egui::Image::new(egui::include_image!("../../res/BTN_EAST.png")).max_height(12.0),
+                egui::Image::new(egui::include_image!("../../assets/glyphs/BTN_EAST.png")).max_height(12.0),
             );
             ui.label("[X]");
             let remove_text = match self.instance_add_dev {
@@ -427,7 +427,7 @@ impl PartyApp {
 
                 if self.instance_add_dev == None {
                     let invitebtn = ui.add(
-                        egui::Button::image_and_text(egui::include_image!("../../res/BTN_NORTH.png"), "[A] Invite New Device")
+                        egui::Button::image_and_text(egui::include_image!("../../assets/glyphs/BTN_NORTH.png"), "[A] Invite New Device")
                     );
                     if invitebtn.clicked() {
                         self.instance_add_dev = Some(i);
@@ -468,7 +468,7 @@ impl PartyApp {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.horizontal(|ui| {
                     ui.add(
-                        egui::Image::new(egui::include_image!("../../res/BTN_START.png"))
+                        egui::Image::new(egui::include_image!("../../assets/glyphs/BTN_START.png"))
                             .max_height(16.0),
                     );
                     if ui.button("Start").clicked() {
