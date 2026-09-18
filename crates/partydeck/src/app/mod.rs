@@ -1,9 +1,16 @@
 #[allow(clippy::module_inception)]
 mod app;
-mod app_pages;
-mod app_panels;
-pub mod dialogs;
-pub mod handler_view;
+mod dialogs;
+mod handler_view;
+mod help;
+mod icons;
+mod job;
+mod launch;
+mod nav;
+mod pages;
+mod panels;
+mod state;
+mod widgets;
 
 pub use app::PartyApp;
 
@@ -27,7 +34,7 @@ fn zoom_factor(fullscreen: bool, screen_height: u32) -> f32 {
     }
 }
 
-pub fn run(fullscreen: bool, handler_lite: Option<Handler>) -> eframe::Result {
+pub fn run(fullscreen: bool, exec_handler: Option<Handler>) -> eframe::Result {
     let monitors = detect_monitors();
     eprintln!("[partydeck] Monitors detected:");
     for monitor in &monitors {
@@ -45,7 +52,7 @@ pub fn run(fullscreen: bool, handler_lite: Option<Handler>) -> eframe::Result {
         .with_inner_size(WINDOW_SIZE)
         .with_min_inner_size(MIN_WINDOW_SIZE)
         .with_fullscreen(fullscreen);
-    match eframe::icon_data::from_png_bytes(include_bytes!("../../assets/icons/icon.png")) {
+    match eframe::icon_data::from_png_bytes(icons::WINDOW_ICON_PNG) {
         Ok(icon) => viewport = viewport.with_icon(icon),
         Err(e) => eprintln!("[partydeck] Failed to load window icon: {e}"),
     }
@@ -61,7 +68,7 @@ pub fn run(fullscreen: bool, handler_lite: Option<Handler>) -> eframe::Result {
         Box::new(move |cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             cc.egui_ctx.set_zoom_factor(zoom);
-            Ok(Box::new(PartyApp::new(monitors, handler_lite)))
+            Ok(Box::new(PartyApp::new(monitors, exec_handler)))
         }),
     )
 }

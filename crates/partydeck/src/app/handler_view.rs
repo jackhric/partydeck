@@ -1,5 +1,6 @@
-use eframe::egui::{self, ImageSource};
+use eframe::egui::ImageSource;
 
+use super::icons::EXECUTABLE_ICON;
 use crate::handler::Handler;
 
 const CLAMP_CHARS: usize = 25;
@@ -9,7 +10,7 @@ pub fn icon(h: &Handler) -> ImageSource<'_> {
     if h.path_handler.join("icon.png").exists() {
         format!("file://{}/icon.png", h.path_handler.display()).into()
     } else {
-        egui::include_image!("../../assets/icons/executable_icon.png")
+        EXECUTABLE_ICON
     }
 }
 

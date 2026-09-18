@@ -12,6 +12,17 @@ pub fn msg(title: &str, contents: &str) {
     let _ = dialog::Message::new(contents).title(title).show();
 }
 
+/// Opens `path` in the desktop file manager; shows `error` when that fails.
+pub fn open_in_file_manager(path: &Path, error: &str) {
+    if std::process::Command::new("xdg-open")
+        .arg(path)
+        .status()
+        .is_err()
+    {
+        msg("Error", error);
+    }
+}
+
 pub fn yesno(title: &str, contents: &str) -> bool {
     dialog::Question::new(contents)
         .title(title)
